@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.env
+.DS_Store
+*.log
+
+.pnp.*
+.yarn/
+
+.git/
+.claude/
+
+.yalc/
+yalc.*
+# ocp dev local stores (settings hold the CMS client secret and Graph key)
+.ocp-local/

@@ -1,0 +1,45 @@
+sections:
+  - key: site
+    label: Site
+    elements:
+      - type: text
+        key: siteUrl
+        label: Site URL
+        help: >-
+          The front end for this CMS instance, e.g. https://optimizely-onboarding.vercel.app.
+          Destinations are opened there, and its /api/redirects shows what is live.
+      - type: button
+        label: Save
+        action: saveSite
+        style: primary
+  - key: graph
+    label: Optimizely Graph
+    elements:
+      - type: secret
+        key: singleKey
+        label: Single key
+        help: >-
+          The instance's Graph single key (CMS → Settings → API Keys), to read the published
+          rules and page URLs. Leave blank to keep the saved one.
+      - type: button
+        label: Save
+        action: saveGraph
+        style: primary
+  - key: cms
+    label: CMS API client
+    elements:
+      - type: text
+        key: clientId
+        label: Client ID
+        help: >-
+          CMS → Settings → API Keys, with content write access: adding or disabling a redirect
+          publishes a Redirect Rule and the Redirect Config. The CMS history shows this client
+          as the author, not the editor.
+      - type: secret
+        key: clientSecret
+        label: Client secret
+        help: Shown once when the API key is created. Leave blank to keep the saved one.
+      - type: button
+        label: Save
+        action: saveCms
+        style: primary

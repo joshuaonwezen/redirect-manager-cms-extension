@@ -1,0 +1,30 @@
+meta:
+  app_id: cms_redirects
+  display_name: Redirects
+  version: 0.0.1-dev.1
+  vendor: optimizely
+  summary: See every redirect the site applies, find loops, chains and dead ends, and add redirects from the editor.
+  support_url: https://www.optimizely.com
+  contact_email: joshua.onwezen@optimizely.com
+  categories:
+    - Testing & Utilities
+  availability:
+    - all
+
+runtime: node22-cms-ext
+
+functions:
+  cms_extension:
+    entry_point: CmsUiExtension
+    description: Reads the site's redirect rules (Graph + the site), checks them, and writes rules through the CMS REST API.
+    accepts: cms_ui_extension
+
+ui_extensions:
+  sidebar:
+    - name: page-redirects
+      entry_point: PageRedirects
+      display_name: Redirects
+  view:
+    - name: redirect-manager
+      entry_point: RedirectManager
+      display_name: Redirects
