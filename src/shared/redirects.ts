@@ -21,11 +21,24 @@ export interface RawRule {
   enabled?: boolean | null;
 }
 
-/** Leading slash, collapse repeated slashes, drop the trailing slash (except root). Absolute http(s) destinations are left untouched. */
+// A backslash, whitespace or a control character turns "/\evil.example" or "/<TAB>/evil.example"
+// into another host once it goes through new URL(path, origin), so the site drops any path
+// that has one.
+export const UNSAFE_PATH_CHARS = /[\\\s\u0000-\u001f\u007f]/;
+
+/**
+ * Leading slash, collapse repeated slashes, drop the trailing slash (except root). Absolute
+ * https destinations are left untouched. "" for anything the site drops: an http:// URL, or
+ * a value with a backslash, whitespace or a control character.
+ */
 export function normalizeRedirectPath(input: string): string {
   let s = (input ?? '').trim();
   if (!s) return '';
-  if (/^https?:\/\//i.test(s)) return s;
+  if (/^https?:\/\//i.test(s)) {
+    if (!/^https:\/\//i.test(s) || UNSAFE_PATH_CHARS.test(s)) return '';
+    return s;
+  }
+  if (UNSAFE_PATH_CHARS.test(s)) return '';
   if (!s.startsWith('/')) s = '/' + s;
   s = s.replace(/\/{2,}/g, '/');
   if (s.length > 1) s = s.replace(/\/+$/, '');
@@ -55,6 +68,21 @@ export function norm(p: string): string {
 }
 
 export const isAbsolute = (s: string) => /^https?:\/\//i.test(s);
+
+const PROBE_ORIGIN = 'https://site.invalid';
+
+/**
+ * Whether the site's middleware follows a destination matchRedirect() returned. It only
+ * follows a relative one that resolves on the site itself: a subpath remainder can still
+ * make "//other.example" out of a safe rule.
+ */
+export function followed(dest: string): boolean {
+  try {
+    return isAbsolute(dest) || new URL(dest, PROBE_ORIGIN).origin === PROBE_ORIGIN;
+  } catch {
+    return false;
+  }
+}
 
 /** matchRedirect(), also returning the rule that fired. */
 export function matchRule<R extends RedirectRule>(
@@ -109,6 +137,8 @@ export interface Trace<R> {
   final: string;
   /** The redirects never settle: a cycle, or a path that keeps growing. */
   loop: boolean;
+  /** A destination the site refused to follow (it would leave the site), so the visitor stays on `final`. */
+  ignored: string | null;
 }
 
 const MAX_HOPS = 10;
@@ -121,24 +151,70 @@ export function trace<R extends RedirectRule>(path: string, rules: R[]): Trace<R
   while (!isAbsolute(current)) {
     const hit = matchRule(current, rules);
     if (!hit) break;
+    if (!followed(hit.toPath)) return {hops, final: current, loop: false, ignored: hit.toPath};
     hops.push({from: current, to: hit.toPath, status: hit.status, rule: hit.rule});
     current = hit.toPath;
-    if (hops.length >= MAX_HOPS || (!isAbsolute(current) && seen.has(norm(current)))) return {hops, final: current, loop: true};
+    if (hops.length >= MAX_HOPS || (!isAbsolute(current) && seen.has(norm(current)))) {
+      return {hops, final: current, loop: true, ignored: null};
+    }
     seen.add(norm(current));
   }
-  return {hops, final: current, loop: false};
+  return {hops, final: current, loop: false, ignored: null};
 }
 
 export type Severity = 'error' | 'warning' | 'info';
 
 export interface RuleIssue {
-  code: 'disabled' | 'invalid' | 'duplicate' | 'self' | 'loop' | 'chain' | 'dead' | 'shadows_page' | 'not_live' | 'not_applied';
+  code:
+    | 'disabled'
+    | 'invalid'
+    | 'ignored'
+    | 'duplicate'
+    | 'self'
+    | 'loop'
+    | 'chain'
+    | 'dead'
+    | 'shadows_page'
+    | 'not_live'
+    | 'not_applied';
   severity: Severity;
   message: string;
 }
 
 export interface KeyedRule extends RawRule {
   key: string;
+}
+
+/** Why the site drops or never fires a rule, judged from its own paths. Null when it applies it. */
+export function droppedReason(row: RawRule): RuleIssue | null {
+  const from = (row.fromPath ?? '').trim();
+  const to = (row.toPath ?? '').trim();
+  if (!from || !to) return {code: 'invalid', severity: 'error', message: 'Missing a From or To address: the site ignores it.'};
+  if (UNSAFE_PATH_CHARS.test(from) || isAbsolute(from)) {
+    return {
+      code: 'ignored',
+      severity: 'error',
+      message: isAbsolute(from)
+        ? 'Ignored by the site: From must be a path on this site, like /old-page, not a full address.'
+        : 'Ignored by the site: its From address has a space, backslash or hidden character in it.',
+    };
+  }
+  if (/^http:\/\//i.test(to)) {
+    return {
+      code: 'ignored',
+      severity: 'error',
+      message: 'Ignored by the site: it only sends visitors to another website at a secure https:// address.',
+    };
+  }
+  if (UNSAFE_PATH_CHARS.test(to)) {
+    return {
+      code: 'ignored',
+      severity: 'error',
+      message:
+        'Ignored by the site: its To address has a space, backslash or hidden character in it, which browsers can read as another website.',
+    };
+  }
+  return null;
 }
 
 const path = (hops: Array<{from: string}>, final: string) => [...hops.map((h) => h.from), final].join(' → ');
@@ -155,12 +231,13 @@ export function analyzeRules(rows: KeyedRule[]): Map<string, RuleIssue[]> {
       add(row.key, {code: 'disabled', severity: 'info', message: 'Disabled: the site ignores it.'});
       continue;
     }
-    const from = normalizeRedirectPath(row.fromPath ?? '');
-    const to = normalizeRedirectPath(row.toPath ?? '');
-    if (!from || !to) {
-      add(row.key, {code: 'invalid', severity: 'error', message: 'Missing a from or to path: the site ignores it.'});
+    const dropped = droppedReason(row);
+    if (dropped) {
+      add(row.key, dropped);
       continue;
     }
+    const from = normalizeRedirectPath(row.fromPath ?? '');
+    const to = normalizeRedirectPath(row.toPath ?? '');
     if (!isAbsolute(to) && norm(to) === norm(from)) {
       add(row.key, {code: 'self', severity: 'error', message: 'Points at itself: the site skips it.'});
       continue;
@@ -198,10 +275,55 @@ export interface NewRule {
   note?: string;
 }
 
+/** Risky additions the backend refuses until the editor confirms them by code. */
+export const ADD_CONFIRMS = ['external_destination', 'destination_missing', 'hides_page', 'broad_subpaths'] as const;
+export type AddConfirm = (typeof ADD_CONFIRMS)[number];
+
+export const isAddConfirm = (code: string): code is AddConfirm => (ADD_CONFIRMS as readonly string[]).includes(code);
+
 export interface Validation {
   errors: Partial<Record<'fromPath' | 'toPath', string>>;
   warnings: string[];
   rule: NewRule;
+}
+
+// Paths the site serves itself, or that only its own code should produce.
+const RESERVED_FROM = /^\/(api|_next)(\/|$)/i;
+const RESERVED_FILES = new Set(['/favicon.ico', '/robots.txt', '/sitemap.xml']);
+
+function parses(url: string): boolean {
+  try {
+    return Boolean(new URL(url));
+  } catch {
+    return false;
+  }
+}
+
+/** Why `raw` can't be the From of a new rule, or null. A missing leading slash is fine: it is added. */
+export function fromPathProblem(raw: string): string | null {
+  const s = (raw ?? '').trim();
+  if (!s) return 'Which address should redirect? A path on this site, like /old-page.';
+  if (/^[a-z][a-z0-9+.-]*:/i.test(s)) return 'A path on this site, like /old-page, not a full address.';
+  if (UNSAFE_PATH_CHARS.test(s)) return 'Remove the spaces, backslashes or hidden characters.';
+  if (/[?#]/.test(s)) return 'Leave out everything from ? or #: a redirect matches the path only.';
+  const p = normalizeRedirectPath(s).toLowerCase();
+  if (p === '/') return 'Redirecting the homepage would send every visitor away.';
+  if (RESERVED_FROM.test(p) || RESERVED_FILES.has(p)) return 'The site needs this address for itself, so it can\'t redirect.';
+  if (p.includes('__v_')) return 'Addresses with __v_ in them belong to the site\'s experiments and can\'t redirect.';
+  return null;
+}
+
+/** Why `raw` can't be the To of a new rule, or null. */
+export function toPathProblem(raw: string): string | null {
+  const s = (raw ?? '').trim();
+  if (!s) return 'Where should it go? A path like /new-page, or a full https:// address.';
+  if (/^http:\/\//i.test(s)) return 'Use a secure https:// address: the site doesn\'t send visitors to http:// ones.';
+  if (UNSAFE_PATH_CHARS.test(s)) {
+    return 'Remove the spaces, backslashes or hidden characters: browsers can read them as another website.';
+  }
+  if (/^https:\/\//i.test(s)) return parses(s) ? null : 'That isn\'t a valid web address.';
+  if (/^[a-z][a-z0-9+.-]*:/i.test(s)) return 'A path like /new-page, or a full https:// address.';
+  return null;
 }
 
 /** Checks a rule before it is added, against the rules that exist (enabled or not). */
@@ -212,13 +334,14 @@ export function validateNewRule(input: NewRule, existing: RawRule[]): Validation
   const errors: Validation['errors'] = {};
   const warnings: string[] = [];
 
-  if (!fromPath || isAbsolute(fromPath)) errors.fromPath = 'A path on this site, like /old-page.';
-  else if (fromPath === '/') errors.fromPath = 'Redirecting the homepage would send every visitor away.';
-  if (!toPath) errors.toPath = 'Where should it go? A path like /new-page, or a full URL.';
+  const fromProblem = fromPathProblem(input.fromPath);
+  const toProblem = toPathProblem(input.toPath);
+  if (fromProblem) errors.fromPath = fromProblem;
+  if (toProblem) errors.toPath = toProblem;
   if (Object.keys(errors).length > 0) return {errors, warnings, rule};
 
   if (!isAbsolute(toPath) && norm(toPath) === norm(fromPath)) {
-    errors.toPath = 'From and to are the same page.';
+    errors.toPath = 'From and To are the same page.';
     return {errors, warnings, rule};
   }
   const rules = effectiveRules(existing);

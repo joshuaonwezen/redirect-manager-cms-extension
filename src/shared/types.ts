@@ -1,7 +1,7 @@
 // The contract between the view/sidebar and the cms_extension function. The UI sends
 // {action, params}; the function answers with an Envelope.
 
-import type {NewRule, RuleIssue} from './redirects';
+import type {AddConfirm, NewRule, RuleIssue} from './redirects';
 
 export type Envelope<T> =
   | {ok: true; result: T}
@@ -41,6 +41,8 @@ export interface Overview {
 export interface PageRedirects {
   path: string;
   locale: string;
+  /** False when the site has no redirect list (Redirect Config) yet: nothing can be added. */
+  hasConfig: boolean;
   rules: RuleRow[];
   /** Rules that end on this page. */
   inbound: RuleRow[];
@@ -55,22 +57,34 @@ export interface TestResult {
   hops: Array<{from: string; to: string; status: 307 | 308; ruleKey: string}>;
   final: string;
   loop: boolean;
+  /** A destination the site refused to follow, because browsers would read it as another website. */
+  ignored: string | null;
   /** How the final destination answers on the site; null for an external URL. */
   finalStatus: {status: number | null; text: string; ok: boolean} | null;
+  /** The tested address on the site, to open in a new tab. */
+  openUrl: string;
 }
 
 export interface WriteResult {
   /** False when the instance needs approval: the change is saved as a draft for a reviewer. */
   published: boolean;
+  /** True when one of the two writes went through and the other didn't: `message` says which. */
+  partial?: boolean;
   message: string;
-  ruleKey?: string;
+  /** The rule as written, for the audit log. */
+  rule: {key: string; fromPath: string; toPath: string; permanent: boolean; matchSubpaths: boolean; enabled: boolean};
 }
+
+export type AddRuleParams = NewRule & {
+  /** Risks the editor has seen and accepted ("Continue anyway"). */
+  confirm: AddConfirm[];
+};
 
 export type ActionParams = {
   overview: Record<string, never>;
   pageRedirects: {key: string; locale: string; path: string};
-  testUrl: {path: string};
-  addRule: NewRule;
+  testUrl: {url: string};
+  addRule: AddRuleParams;
   setEnabled: {ruleKey: string; enabled: boolean};
 };
 

@@ -14,11 +14,12 @@ export class CallError extends Error {
 
 const FALLBACK_MESSAGES: Record<string, string> = {
   not_configured: 'The app is missing settings.',
-  cms_unauthorized: 'The CMS rejected the API client. Check it in the app settings.',
-  cms_rate_limited: 'The CMS is rate limiting requests. Try again in a moment.',
-  graph_unauthorized: 'Graph rejected the single key. Check it in the app settings.',
-  internal_error: 'Something went wrong in the extension backend.',
-  backend_unreachable: 'The extension backend failed before answering. The app logs (ocp app logs) have the details.',
+  cms_unauthorized: 'The CMS rejected the API key in the app settings. Ask a CMS admin to check it.',
+  cms_write_denied: 'The CMS API key in the app settings can read content but not change it.',
+  cms_rate_limited: 'The CMS is busy. Try again in a moment.',
+  graph_unauthorized: 'The published-content key in the app settings was rejected. Ask a CMS admin to check it.',
+  internal_error: 'Something went wrong in the extension. Try again.',
+  backend_unreachable: "The extension's server failed before answering. Try again; if it keeps failing, a CMS admin can check the app's logs.",
 };
 
 /** Calls one backend action; resolves with its result or throws CallError. */

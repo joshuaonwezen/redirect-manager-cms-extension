@@ -23,5 +23,7 @@ describe('settings', () => {
     expect(normalizeSiteUrl(' https://site.example/ ')).toBe('https://site.example');
     expect(normalizeSiteUrl('https://site.example/sub/')).toBe('https://site.example/sub');
     expect(normalizeSiteUrl('site.example')).toBeNull();
+    expect(normalizeSiteUrl('http://site.example')).toBeNull();
+    expect(normalizeSiteUrl('https://site.example/a b')).toBeNull();
   });
 });

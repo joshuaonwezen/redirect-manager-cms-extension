@@ -1,36 +1,91 @@
 import {Alert, Button, Group, Separator, Text} from '@optiaxiom/react';
 import {register, type ExtensionContext} from '@optimizely/cms-extensibility-sdk';
-import type {NewRule} from '@shared/redirects';
-import type {PageRedirects as PageResult} from '@shared/types';
+import type {PageRedirects as PageResult, RuleRow, WriteResult} from '@shared/types';
 import {useCallback, useEffect, useRef, useState} from 'react';
 
 import {call} from '../common/api';
 import {Frame} from '../common/Frame';
 import {useContent} from '../common/useContent';
-import {AddRedirect} from './AddRedirect';
+import {AddRedirect, RiskConfirm, useAddRule} from './AddRedirect';
 import {Issues} from './Issues';
+import {mono, NoticeAlert, noticeOf, RuleText, useNotice} from './parts';
 
-const TITLE = 'Redirects';
-const mono = {fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', overflowWrap: 'anywhere' as const};
+/** The page moved: one confirmation sends its old address here. */
+function RenameFix({
+  context,
+  oldPath,
+  pagePath,
+  onDone,
+}: {
+  context: ExtensionContext;
+  oldPath: string;
+  pagePath: string;
+  onDone: (result: WriteResult) => void;
+}) {
+  const adder = useAddRule(context, onDone);
+  return (
+    <Group flexDirection="column" gap="8">
+      <Alert intent="warning">
+        <Group flexDirection="column" gap="8">
+          <Text fontSize="sm">
+            This page used to be at <span style={mono}>{oldPath}</span>. Links and bookmarks to that address now get a &quot;page
+            not found&quot;.
+          </Text>
+          <Text fontSize="sm">
+            Send visitors from <span style={mono}>{oldPath}</span> to this page?
+          </Text>
+          {!adder.pending && (
+            <Button
+              appearance="primary"
+              loading={adder.busy}
+              onClick={() =>
+                void adder.submit({fromPath: oldPath, toPath: pagePath, permanent: true, matchSubpaths: false, note: 'The page was renamed.'})
+              }
+              size="sm"
+            >
+              Add redirect
+            </Button>
+          )}
+        </Group>
+      </Alert>
+      <RiskConfirm adder={adder} />
+      {adder.error && (
+        <Alert intent="danger">
+          <Text fontSize="sm">{adder.error}</Text>
+        </Alert>
+      )}
+    </Group>
+  );
+}
+
+function InboundRule({rule}: {rule: RuleRow}) {
+  return (
+    <Group flexDirection="column" gap="4">
+      <RuleText rule={rule} />
+      <Issues issues={rule.issues} />
+    </Group>
+  );
+}
 
 function PageRedirects({context}: {context: ExtensionContext}) {
-  const content = useContent(context);
-  const [result, setResult] = useState<PageResult | null>(null);
+  const {content, ready} = useContent(context);
+  // The result remembers the page it was loaded for: right after the editor switches page,
+  // until the new one arrives, nothing (no Add or rename button) may act on the old one.
+  const [loaded, setLoaded] = useState<{page: string; data: PageResult} | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  const [adding, setAdding] = useState<Partial<NewRule> | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [notice, setNotice] = useNotice();
   const requestId = useRef(0);
 
   const load = useCallback(
     async (key: string, locale: string, path: string) => {
       const id = ++requestId.current;
       setBusy(true);
+      setError(null);
       try {
-        const next = await call(context, 'pageRedirects', {key, locale, path});
-        if (id !== requestId.current) return;
-        setResult(next);
-        setError(null);
+        const data = await call(context, 'pageRedirects', {key, locale, path});
+        if (id === requestId.current) setLoaded({page: `${key}|${locale}|${path}`, data});
       } catch (e) {
         if (id === requestId.current) setError(e);
       } finally {
@@ -41,108 +96,104 @@ function PageRedirects({context}: {context: ExtensionContext}) {
   );
 
   useEffect(() => {
-    setAdding(null);
+    setAdding(false);
     setNotice(null);
-    if (content?.path) void load(content.key, content.locale, content.path);
-    else setResult(null);
-  }, [content?.key, content?.locale, content?.path, load]);
+    setLoaded(null);
+    setError(null);
+    if (content?.path) {
+      void load(content.key, content.locale, content.path);
+    } else {
+      requestId.current++;
+      setBusy(false);
+    }
+  }, [content?.key, content?.locale, content?.path, load, setNotice]);
 
-  if (!content) return <Frame busy title={TITLE} />;
+  if (!ready) return <Frame busy />;
+  if (!content) {
+    return (
+      <Frame>
+        <Text color="fg.secondary" fontSize="sm">
+          Open a page to see the redirects that lead to it.
+        </Text>
+      </Frame>
+    );
+  }
   if (!content.path) {
     return (
-      <Frame title={TITLE}>
+      <Frame>
         <Alert intent="information">
-          <Text fontSize="sm">Redirects lead to pages. Open a page to see the redirects about it.</Text>
+          <Text fontSize="sm">This item has no address of its own, so no redirect leads to it. Open a page to see its redirects.</Text>
         </Alert>
       </Frame>
     );
   }
 
-  const reload = () => void load(content.key, content.locale, content.path!);
+  const {key, locale, path} = content;
+  const result = loaded && loaded.page === `${key}|${locale}|${path}` ? loaded.data : null;
+  const reload = () => void load(key, locale, path);
+  const done = (r: WriteResult) => {
+    setAdding(false);
+    setNotice(noticeOf(r));
+    reload();
+  };
 
   return (
-    <Frame busy={busy} error={error} subtitle={result ? `Redirect rules about ${result.path}.` : undefined} title={TITLE}>
-      {notice && (
-        <Alert intent="success">
-          <Text fontSize="sm">{notice}</Text>
+    <Frame busy={busy} error={error} onRetry={reload} subtitle={`Page URL: ${result?.path ?? path}`}>
+      <NoticeAlert notice={notice} />
+      {result && !result.hasConfig && (
+        <Alert intent="information">
+          <Text fontSize="sm">This site has no redirect list yet, so redirects can&apos;t be added here. A developer sets it up once.</Text>
         </Alert>
       )}
-      {adding && result ? (
-        <AddRedirect
-          context={context}
-          existing={result.rules}
-          initial={adding}
-          onCancel={() => setAdding(null)}
-          onDone={(r) => {
-            setAdding(null);
-            setNotice(r.message);
-            reload();
-          }}
-        />
-      ) : (
-        result && (
-          <Group flexDirection="column" gap="12">
-            {result.shadowedBy && (
-              <Alert intent="danger">
-                <Text fontSize="sm">
-                  Visitors who open {result.shadowedBy.via} never see this page: the rule {result.shadowedBy.rule.fromPath} →{' '}
-                  {result.shadowedBy.rule.toPath} sends them away first. Disable it in Extensions &gt; Redirects if that is not
-                  intended.
-                </Text>
-              </Alert>
-            )}
+      {result?.hasConfig && (
+        <Group flexDirection="column" gap="12">
+          {result.shadowedBy && (
+            <Alert intent="danger">
+              <Text fontSize="sm">
+                Visitors who open <span style={mono}>{result.shadowedBy.via}</span> never see this page: the redirect{' '}
+                <span style={mono}>{result.shadowedBy.rule.fromPath}</span> → <span style={mono}>{result.shadowedBy.rule.toPath}</span>{' '}
+                sends them away first. Disable it in Extensions &gt; Redirects if that isn&apos;t intended.
+              </Text>
+            </Alert>
+          )}
 
-            {result.urlChanges.map(({oldPath, coveredBy}) =>
-              coveredBy ? (
-                <Text color="fg.secondary" fontSize="sm" key={oldPath}>
-                  Its old URL <span style={mono}>{oldPath}</span> redirects to <span style={mono}>{coveredBy.toPath}</span>.
-                </Text>
-              ) : (
-                <Group flexDirection="column" gap="8" key={oldPath}>
-                  <Alert intent="warning">
-                    <Text fontSize="sm">
-                      This page used to be at {oldPath}. Links and bookmarks to that URL now get a not-found page.
-                    </Text>
-                  </Alert>
-                  <Button
-                    appearance="primary"
-                    onClick={() => setAdding({fromPath: oldPath, toPath: result.path, note: 'The page was renamed.'})}
-                  >
-                    Redirect {oldPath} here
-                  </Button>
-                </Group>
-              ),
-            )}
-
-            <Separator />
-            <Text fontSize="sm" fontWeight="600">
-              Redirects to this page ({result.inbound.length})
-            </Text>
-            {result.inbound.length === 0 ? (
-              <Text color="fg.secondary" fontSize="sm">
-                None.
+          {result.urlChanges.map(({oldPath, coveredBy}) =>
+            coveredBy ? (
+              <Text color="fg.secondary" fontSize="sm" key={oldPath}>
+                Its old address <span style={mono}>{oldPath}</span> redirects to <span style={mono}>{coveredBy.toPath}</span>.
               </Text>
             ) : (
-              result.inbound.map((rule) => (
-                <Group flexDirection="column" gap="4" key={rule.key}>
-                  <Text fontSize="sm" style={mono}>
-                    {rule.fromPath}
-                    {rule.matchSubpaths ? '/*' : ''} → {rule.toPath}
-                  </Text>
-                  <Text color="fg.secondary" fontSize="xs">
-                    {rule.permanent ? 'Permanent (308)' : 'Temporary (307)'}
-                    {rule.note ? ` · ${rule.note}` : ''}
-                  </Text>
-                  {rule.issues.length > 0 && <Issues issues={rule.issues} />}
-                </Group>
-              ))
-            )}
-            <Button onClick={() => setAdding({toPath: result.path})}>Add a redirect to this page</Button>
-            <Text color="fg.tertiary" fontSize="xs">
-              {result.rules.length} rules in Redirect Config. Extensions &gt; Redirects shows them all, with checks.
+              <RenameFix context={context} key={oldPath} oldPath={oldPath} onDone={done} pagePath={result.path} />
+            ),
+          )}
+
+          <Separator />
+          <Text fontSize="sm" fontWeight="600">
+            Redirects to this page ({result.inbound.length})
+          </Text>
+          {result.inbound.length === 0 ? (
+            <Text color="fg.secondary" fontSize="sm">
+              None.
             </Text>
-          </Group>
-        )
+          ) : (
+            result.inbound.map((rule) => <InboundRule key={rule.key} rule={rule} />)
+          )}
+          {adding ? (
+            <AddRedirect
+              context={context}
+              existing={result.rules}
+              fixedTo={result.path}
+              onCancel={() => setAdding(false)}
+              onDone={done}
+            />
+          ) : (
+            <Button onClick={() => setAdding(true)}>Add a redirect to this page</Button>
+          )}
+          <Text color="fg.tertiary" fontSize="xs">
+            The site has {result.rules.length} redirect{result.rules.length === 1 ? '' : 's'}. Extensions &gt; Redirects lists them
+            all, with checks.
+          </Text>
+        </Group>
       )}
     </Frame>
   );

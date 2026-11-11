@@ -65,7 +65,7 @@ export class Lifecycle extends AppLifecycle {
 
   private async saveSite(formData: SubmittedFormData, result: LifecycleSettingsResult) {
     const siteUrl = normalizeSiteUrl(text(formData, 'siteUrl'));
-    if (!siteUrl) return result.addError('siteUrl', 'A full URL, e.g. https://www.example.com.');
+    if (!siteUrl) return result.addError('siteUrl', 'A full https:// address, e.g. https://www.example.com.');
     try {
       const res = await fetch(siteUrl, {redirect: 'follow', signal: AbortSignal.timeout(10_000)});
       void res.body?.cancel();

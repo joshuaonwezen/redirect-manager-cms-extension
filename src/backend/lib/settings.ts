@@ -27,10 +27,10 @@ export interface LoadedSettings {
 
 export type LoadedConfig = {ok: true; config: LoadedSettings} | {ok: false; missing: string[]};
 
-/** https://host[/path] without a trailing slash, or null. */
+/** https://host[/path] without a trailing slash, or null. Only https: the extension opens and checks pages there. */
 export function normalizeSiteUrl(raw: string | undefined): string | null {
   const value = raw?.trim() ?? '';
-  if (!/^https?:\/\/[^\s/]+/i.test(value)) return null;
+  if (!/^https:\/\/[^\s/]+/i.test(value) || /\s/.test(value)) return null;
   try {
     const url = new URL(value);
     return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;

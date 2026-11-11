@@ -23,6 +23,8 @@ export interface CmsVersion {
   properties?: Record<string, {value?: unknown} | null> | null;
 }
 
+export type PublishOutcome = 'published' | 'awaiting_approval';
+
 export interface CmsItem {
   key: string;
   container?: string;
@@ -85,24 +87,43 @@ export class CmsClient {
     return created?.initialVersion?.version ?? null;
   }
 
-  /** A new, blank draft: it does NOT copy the properties of the version before it. */
-  public async createDraft(key: string, locale: string, displayName?: string): Promise<void> {
-    await this.send('Create version', 'POST', `/v1/content/${key}/versions`, displayName ? {locale, displayName} : {locale});
+  /**
+   * Creates a draft of the item's base (no variation) in `locale` and returns ITS version, so
+   * two editors writing at once each publish their own draft. The CMS does NOT copy the
+   * properties into the new draft: the caller patches every property it should keep.
+   */
+  public async createBaseDraft(key: string, locale: string, carry: {displayName?: string}): Promise<string> {
+    const created = await this.send<Partial<CmsVersion>>('Create draft', 'POST', `/v1/content/${key}/versions`, {
+      locale,
+      ...(carry.displayName ? {displayName: carry.displayName} : {}),
+    });
+    if (created?.version && !created.variation) return String(created.version);
+    // Some responses omit the version: take the newest base draft in this locale. Never
+    // the global /versions list (it mixes languages) and never a variation's draft.
+    const draft = (await this.listVersions(key, locale, 10))
+      .filter((v) => v.status === 'draft' && !v.variation)
+      .sort((a, b) => Number(b.version) - Number(a.version))[0];
+    if (!draft) throw new ApiError(502, 'cms_unavailable', `Create draft: no base draft of ${key} in ${locale} afterwards.`);
+    return String(draft.version);
   }
 
   public async patchVersion(key: string, version: string, body: unknown): Promise<void> {
     await this.send('Update version', 'PATCH', `/v1/content/${key}/versions/${encodeURIComponent(version)}`, body, 'application/merge-patch+json');
   }
 
-  /** True when published; false when the instance needs approval and the version waits for a reviewer. */
-  public async publish(key: string, version: string): Promise<boolean> {
+  /** Publishes the version, or reports that an approval workflow holds it for review. */
+  public async publishVersion(key: string, version: string): Promise<PublishOutcome> {
     try {
       await this.send('Publish', 'POST', `/v1/content/${key}/versions/${encodeURIComponent(version)}:publish`);
-      return true;
     } catch (error) {
-      if (error instanceof ApiError && error.status === 400 && /requires approval/i.test(error.message)) return false;
+      // Instances with an approval workflow answer 400 "requires approval" and keep the draft.
+      if (error instanceof ApiError && error.status === 400 && /requires approval/i.test(error.message)) {
+        return 'awaiting_approval';
+      }
       throw error;
     }
+    const after = await this.getVersion(key, version);
+    return after?.status === 'published' ? 'published' : 'awaiting_approval';
   }
 
   /** Null when the content doesn't exist (deleted, or never did). */
@@ -138,5 +159,4 @@ export class CmsClient {
       throw error;
     }
   }
-
 }

@@ -3,6 +3,7 @@ import {pathFromPublicUrl} from '@shared/path';
 import {useEffect, useState} from 'react';
 
 export interface OpenContent {
+  /** 32 hex characters: the editor reports keys with or without dashes. */
   key: string;
   version: string | null;
   locale: string;
@@ -13,7 +14,7 @@ export interface OpenContent {
 function toOpen(state: ContentState): OpenContent | null {
   if (!state?.key) return null;
   return {
-    key: state.key,
+    key: state.key.replace(/-/g, '').toLowerCase(),
     version: state.version ?? null,
     locale: state.locale || 'en',
     path: pathFromPublicUrl(state.publicUrl),
@@ -26,20 +27,24 @@ function same(a: OpenContent | null, b: OpenContent | null): boolean {
 
 /**
  * The item open in the editor, kept current as the editor switches item, locale or
- * version (a variation is a version). Also signals readiness to the CMS host.
+ * version (a variation is a version). `ready` turns true once the editor has answered,
+ * so a panel can tell "still loading" from "nothing is open". Also signals readiness to
+ * the CMS host.
  */
-export function useContent(context: ExtensionContext): OpenContent | null {
+export function useContent(context: ExtensionContext): {content: OpenContent | null; ready: boolean} {
   const [content, setContent] = useState<OpenContent | null>(null);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     void context.extension.setReady();
     const apply = (state: ContentState) => {
       const next = toOpen(state);
       setContent((prev) => (same(prev, next) ? prev : next));
+      setReady(true);
     };
     void context.content.get().then(apply);
     return context.content.subscribe(apply);
   }, [context]);
 
-  return content;
+  return {content, ready};
 }

@@ -3,6 +3,7 @@ import {describe, expect, it} from 'vitest';
 import {
   analyzeRules,
   effectiveRules,
+  followed,
   matchRedirect,
   normalizeRedirectPath,
   samePage,
@@ -14,6 +15,43 @@ import {
 
 // The site's behavior (optimizely-nextjs-demo src/lib/redirects.ts + GetRedirectRules.ts).
 // If one of these fails after a change on the site, update redirects.ts to match it.
+
+// normalizeRedirectPath() input -> output, as the site's GetRedirectRules.ts answers it
+// (site commit a2cd291, "Stop CMS redirect rules from sending visitors off-site"). "" means
+// the site drops the rule. Change this table and the site's function together.
+const NORMALIZE_TABLE: Array<[string, string]> = [
+  [' savings//accounts/ ', '/savings/accounts'],
+  ['offers', '/offers'],
+  ['/', '/'],
+  ['///', '/'],
+  ['', ''],
+  ['   ', ''],
+  ['//evil.example', '/evil.example'],
+  ['https://x.example/a/', 'https://x.example/a/'],
+  ['HTTPS://x.example', 'HTTPS://x.example'],
+  ['http://x.example/a', ''],
+  ['HTTP://x.example', ''],
+  ['/\\evil.example', ''],
+  ['\\evil.example', ''],
+  ['/\t/evil.example', ''],
+  ['/\n/evil.example', ''],
+  ['/\r/evil.example', ''],
+  ['/a b', ''],
+  ['/a\u0000b', ''],
+  ['/a\u001fb', ''],
+  ['/a\u007fb', ''],
+  ['/a\u00a0b', ''],
+  ['https://x.example/a b', ''],
+  ['https://x.example\\@evil.example', ''],
+  [' /trimmed\t', '/trimmed'],
+];
+
+describe('normalizeRedirectPath mirrors the site', () => {
+  it.each(NORMALIZE_TABLE)('%j -> %j', (input, output) => {
+    expect(normalizeRedirectPath(input)).toBe(output);
+  });
+});
+
 describe('mirrors the site', () => {
   const rules = effectiveRules([
     {fromPath: 'savings-accounts/', toPath: '/personal/savings', permanent: true},
@@ -50,6 +88,26 @@ describe('mirrors the site', () => {
   it('skips a rule that points at the incoming path', () => {
     expect(matchRedirect('/same', rules)).toBeNull();
   });
+
+  it('drops rules whose paths a browser could read as another website, and http destinations', () => {
+    const kept = effectiveRules([
+      {fromPath: '/ok', toPath: '/fine'},
+      {fromPath: '/bs', toPath: '/\\evil.example'},
+      {fromPath: '/tab', toPath: '/\t/evil.example'},
+      {fromPath: '/insecure', toPath: 'http://x.example'},
+      {fromPath: '/a b', toPath: '/x'},
+    ]);
+    expect(kept.map((r) => r.fromPath)).toEqual(['/ok']);
+  });
+
+  it("follows only a relative destination that stays on the site, like the site's middleware", () => {
+    expect(followed('/offers/a')).toBe(true);
+    expect(followed('https://status.example.com')).toBe(true);
+    expect(followed('//evil.example')).toBe(false);
+    const sub = effectiveRules([{fromPath: '/promo', toPath: '/', matchSubpaths: true}]);
+    expect(matchRedirect('/promo//evil.example', sub)).toEqual({toPath: '//evil.example', status: 307});
+    expect(trace('/promo//evil.example', sub)).toMatchObject({hops: [], final: '/promo//evil.example', ignored: '//evil.example'});
+  });
 });
 
 describe('trace', () => {
@@ -78,6 +136,9 @@ describe('analyzeRules', () => {
     {key: 'off', fromPath: '/off', toPath: '/z', enabled: false},
     {key: 'self', fromPath: '/s', toPath: '/s/'},
     {key: 'empty', fromPath: '/e', toPath: ''},
+    {key: 'offsite', fromPath: '/o', toPath: '/\\evil.example'},
+    {key: 'insecure', fromPath: '/i', toPath: 'http://x.example'},
+    {key: 'spaced', fromPath: '/s p', toPath: '/x'},
   ];
   const issues = analyzeRules(rows);
   const codes = (key: string) => issues.get(key)?.map((i) => i.code);
@@ -90,6 +151,14 @@ describe('analyzeRules', () => {
     expect(codes('off')).toEqual(['disabled']);
     expect(codes('self')).toEqual(['self']);
     expect(codes('empty')).toEqual(['invalid']);
+  });
+
+  it('shows a rule the site drops as ignored, never as fine', () => {
+    expect(codes('offsite')).toEqual(['ignored']);
+    expect(issues.get('offsite')?.[0].message).toMatch(/Ignored by the site: .* browsers can read as another website/);
+    expect(codes('insecure')).toEqual(['ignored']);
+    expect(issues.get('insecure')?.[0].message).toMatch(/https:\/\//);
+    expect(codes('spaced')).toEqual(['ignored']);
   });
 });
 
@@ -112,6 +181,16 @@ describe('validateNewRule', () => {
     expect(validateNewRule(rule('/OLD', '/x'), existing).errors.fromPath).toMatch(/already redirects/);
     expect(validateNewRule(rule('/p', '/p/'), existing).errors.toPath).toMatch(/same page/);
     expect(validateNewRule(rule('/a', '/b'), existing).errors.toPath).toMatch(/loop/);
+  });
+
+  it('refuses addresses the site needs or would drop', () => {
+    expect(validateNewRule(rule('/api/redirects', '/x'), existing).errors.fromPath).toMatch(/needs this address/);
+    expect(validateNewRule(rule('/robots.txt', '/x'), existing).errors.fromPath).toMatch(/needs this address/);
+    expect(validateNewRule(rule('/x/__v_wx--a', '/y'), existing).errors.fromPath).toMatch(/experiments/);
+    expect(validateNewRule(rule('/x?a=1', '/y'), existing).errors.fromPath).toMatch(/\?/);
+    expect(validateNewRule(rule('/x', '/\\evil.example'), existing).errors.toPath).toMatch(/another website/);
+    expect(validateNewRule(rule('/x', 'http://x.example'), existing).errors.toPath).toMatch(/https:\/\//);
+    expect(validateNewRule(rule('/x', 'https://x.example'), existing).errors).toEqual({});
   });
 
   it('allows a path whose rule is disabled, and warns about a destination that redirects on', () => {

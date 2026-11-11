@@ -25,7 +25,7 @@ describe.skipIf(!live)('redirects against a real CMS and site', () => {
       locale: 'en',
       path: process.env.REDIRECTS_LIVE_PATH ?? '/',
     });
-    const test = await manager.testUrl({path: overview.rules[0]?.fromPath ?? '/'});
+    const test = await manager.testUrl({url: overview.rules[0]?.fromPath ?? '/'});
     if (process.env.REDIRECTS_LIVE_OUT) writeFileSync(process.env.REDIRECTS_LIVE_OUT, JSON.stringify({overview, page, test}, null, 2));
     expect(overview.config).not.toBeNull();
     expect(overview.rules.length).toBeGreaterThan(0);

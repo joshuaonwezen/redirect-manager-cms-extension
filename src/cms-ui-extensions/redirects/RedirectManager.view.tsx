@@ -4,6 +4,9 @@ import {
   Badge,
   Box,
   Button,
+  Disclosure,
+  DisclosureContent,
+  DisclosureTrigger,
   Group,
   Heading,
   Input,
@@ -18,28 +21,31 @@ import {
   Text,
 } from '@optiaxiom/react';
 import {register, type ExtensionContext} from '@optimizely/cms-extensibility-sdk';
-import type {Overview, RuleRow, TestResult} from '@shared/types';
+import type {Overview, RuleRow, TestResult, WriteResult} from '@shared/types';
 import {useCallback, useEffect, useState} from 'react';
 
 import {call, errorMessage, isNotConfigured} from '../common/api';
+import {OpenLink} from '../common/OpenLink';
 import {AddRedirect} from './AddRedirect';
 import {Issues, worst} from './Issues';
+import {destinationUrl, mono, NoticeAlert, noticeOf, RuleText, useNotice} from './parts';
 
-const mono = {fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', overflowWrap: 'anywhere' as const};
+const isWebUrl = (url: string) => /^https?:\/\//i.test(url);
 
 function TestUrl({context}: {context: ExtensionContext}) {
-  const [path, setPath] = useState('');
+  const [url, setUrl] = useState('');
   const [result, setResult] = useState<TestResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function test() {
-    if (!path.trim()) return;
+    if (!url.trim()) return;
     setBusy(true);
     setError(null);
     try {
-      setResult(await call(context, 'testUrl', {path}));
+      setResult(await call(context, 'testUrl', {url}));
     } catch (e) {
+      setResult(null);
       setError(errorMessage(e));
     } finally {
       setBusy(false);
@@ -47,17 +53,17 @@ function TestUrl({context}: {context: ExtensionContext}) {
   }
 
   return (
-    <Group flexDirection="column" gap="8">
-      <Text fontSize="sm" fontWeight="600">
-        Test a URL
+    <Group flexDirection="column" gap="8" pt="8">
+      <Text color="fg.secondary" fontSize="sm">
+        Every redirect a visitor to this address goes through, and where they end up.
       </Text>
       <Group gap="8">
         <div style={{flex: 1, maxWidth: 420}}>
           <Input
-            onChange={(e) => setPath(e.target.value)}
+            onChange={(e) => setUrl(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && void test()}
             placeholder="/savings-accounts"
-            value={path}
+            value={url}
           />
         </div>
         <Button loading={busy} onClick={() => void test()}>
@@ -72,13 +78,23 @@ function TestUrl({context}: {context: ExtensionContext}) {
       {result && (
         <Group flexDirection="column" gap="4">
           {result.hops.length === 0 ? (
-            <Text fontSize="sm">No redirect: {result.path} is served as it is.</Text>
+            <Text fontSize="sm">
+              No redirect: <span style={mono}>{result.path}</span> opens as it is.
+            </Text>
           ) : (
             result.hops.map((hop, i) => (
               <Text fontSize="sm" key={`${hop.from}-${i}`}>
-                <span style={mono}>{hop.from}</span> → <span style={mono}>{hop.to}</span> ({hop.status})
+                <span style={mono}>{hop.from}</span> → <span style={mono}>{hop.to}</span> ({hop.status === 308 ? 'permanent' : 'temporary'})
               </Text>
             ))
+          )}
+          {result.ignored && (
+            <Alert intent="warning">
+              <Text fontSize="sm">
+                The site ignores the redirect to <span style={mono}>{result.ignored}</span>: browsers would read it as another website.
+                Visitors stay on <span style={mono}>{result.final}</span>.
+              </Text>
+            </Alert>
           )}
           {result.loop && (
             <Alert intent="danger">
@@ -87,13 +103,20 @@ function TestUrl({context}: {context: ExtensionContext}) {
           )}
           {result.finalStatus && (
             <Text color={result.finalStatus.ok ? 'fg.secondary' : 'fg.error'} fontSize="sm">
-              {result.final}: {result.finalStatus.text}
+              <span style={mono}>{result.final}</span>: {result.finalStatus.text}
             </Text>
           )}
           {!result.finalStatus && !result.loop && result.hops.length > 0 && (
             <Text color="fg.secondary" fontSize="sm">
-              Ends on another site: {result.final}
+              Ends on another website: <span style={mono}>{result.final}</span>
             </Text>
+          )}
+          {isWebUrl(result.openUrl) && (
+            <Box>
+              <OpenLink size="sm" url={result.openUrl}>
+                Open on the site
+              </OpenLink>
+            </Box>
           )}
         </Group>
       )}
@@ -108,7 +131,7 @@ function EnabledCell({
 }: {
   context: ExtensionContext;
   rule: RuleRow;
-  onChanged: (message: string) => void;
+  onChanged: (result: WriteResult) => void;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -120,7 +143,7 @@ function EnabledCell({
     try {
       const result = await call(context, 'setEnabled', {ruleKey: rule.key, enabled: !rule.enabled});
       setConfirming(false);
-      onChanged(result.message);
+      onChanged(result);
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -130,7 +153,7 @@ function EnabledCell({
 
   return (
     <Group flexDirection="column" gap="4">
-      <Switch checked={rule.enabled} disabled={busy} onCheckedChange={() => setConfirming(true)} />
+      <Switch aria-label="Enabled" checked={rule.enabled} disabled={busy} onCheckedChange={() => setConfirming(true)} />
       {confirming && (
         <Group flexDirection="column" gap="4">
           <Text fontSize="xs">{rule.enabled ? 'Disable' : 'Enable'} this redirect?</Text>
@@ -153,12 +176,42 @@ function EnabledCell({
   );
 }
 
+/** One line on what the site serves right now. */
+function SiteStatus({overview}: {overview: Overview}) {
+  const parts: string[] = [];
+  let intent: 'information' | 'warning' = 'information';
+  if (overview.live === null) {
+    parts.push("Couldn't ask the site which redirects are live.");
+    intent = 'warning';
+  } else if (overview.live.pendingChanges > 0) {
+    const n = overview.live.pendingChanges;
+    parts.push(`${n} change${n > 1 ? "s aren't" : " isn't"} live on the site yet: within a minute, or the hour at the latest.`);
+  }
+  if (overview.ignoredConfigs > 0) {
+    const n = overview.ignoredConfigs;
+    parts.push(`The site reads only the newest redirect list, shown here; ${n} older one${n > 1 ? 's do' : ' does'} nothing.`);
+    intent = 'warning';
+  }
+  if (parts.length === 0) {
+    return (
+      <Text color="fg.secondary" fontSize="sm">
+        Everything here is live on the site.
+      </Text>
+    );
+  }
+  return (
+    <Alert intent={intent}>
+      <Text fontSize="sm">{parts.join(' ')}</Text>
+    </Alert>
+  );
+}
+
 function RedirectManager({context}: {context: ExtensionContext}) {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useNotice();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -177,8 +230,8 @@ function RedirectManager({context}: {context: ExtensionContext}) {
     void load();
   }, [context, load]);
 
-  const changed = (message: string) => {
-    setNotice(message);
+  const changed = (result: WriteResult) => {
+    setNotice(noticeOf(result));
     void load();
   };
 
@@ -194,8 +247,8 @@ function RedirectManager({context}: {context: ExtensionContext}) {
             <Group flexDirection="column" gap="4">
               <Heading level="2">Redirects</Heading>
               <Text color="fg.secondary">
-                The rules the site applies before any page renders
-                {overview?.config ? ` · ${rules.length} in Redirect Config, served by ${overview.siteUrl}` : ''}.
+                Every redirect the site applies before a page loads
+                {overview?.config ? ` · ${rules.length} on ${overview.siteUrl}` : ''}.
               </Text>
             </Group>
             <Group gap="8">
@@ -214,46 +267,20 @@ function RedirectManager({context}: {context: ExtensionContext}) {
             <Alert intent={isNotConfigured(error) ? 'warning' : 'danger'}>
               <Text fontSize="sm">
                 {errorMessage(error)}
-                {isNotConfigured(error) ? " Fill them in on the Redirects app's settings page." : ''}
+                {isNotConfigured(error) ? " Ask a CMS admin to fill them in on this app's settings page." : ' Refresh to try again.'}
               </Text>
             </Alert>
           ) : null}
           {!overview && !error && <Spinner />}
-          {notice && (
-            <Alert intent="success">
-              <Text fontSize="sm">{notice}</Text>
-            </Alert>
-          )}
+          <NoticeAlert notice={notice} />
           {overview && !overview.config && (
             <Alert intent="information">
               <Text fontSize="sm">
-                This instance has no Redirect Config yet. The site&apos;s seed-redirects.ts creates one with example rules.
+                This site has no redirect list yet, so redirects can&apos;t be added here. A developer sets it up once.
               </Text>
             </Alert>
           )}
-          {overview && overview.ignoredConfigs > 0 && (
-            <Alert intent="warning">
-              <Text fontSize="sm">
-                {overview.ignoredConfigs} older Redirect Config item{overview.ignoredConfigs > 1 ? 's exist' : ' exists'}. The site
-                only reads the newest one, shown here - the rules in the others do nothing.
-              </Text>
-            </Alert>
-          )}
-          {overview?.config && overview.live === null && (
-            <Alert intent="warning">
-              <Text fontSize="sm">
-                Couldn&apos;t read {overview.siteUrl}/api/redirects, so this can&apos;t tell what the site serves right now.
-              </Text>
-            </Alert>
-          )}
-          {overview?.live && overview.live.pendingChanges > 0 && (
-            <Alert intent="information">
-              <Text fontSize="sm">
-                {overview.live.pendingChanges} change{overview.live.pendingChanges > 1 ? 's are' : ' is'} saved but not served by the
-                site yet. It catches up within a minute when the CMS publish webhook reaches the site, and within an hour without.
-              </Text>
-            </Alert>
-          )}
+          {overview?.config && <SiteStatus overview={overview} />}
 
           {adding && overview?.config && (
             <Box style={{maxWidth: 520}}>
@@ -263,15 +290,27 @@ function RedirectManager({context}: {context: ExtensionContext}) {
                 onCancel={() => setAdding(false)}
                 onDone={(result) => {
                   setAdding(false);
-                  changed(result.message);
+                  changed(result);
                 }}
               />
             </Box>
           )}
 
-          {overview?.config && <TestUrl context={context} />}
+          {overview?.config && (
+            <Disclosure>
+              <DisclosureTrigger>Test a URL</DisclosureTrigger>
+              <DisclosureContent>
+                <TestUrl context={context} />
+              </DisclosureContent>
+            </Disclosure>
+          )}
 
-          {rules.length > 0 && (
+          {overview?.config && rules.length === 0 && (
+            <Text color="fg.secondary" fontSize="sm">
+              No redirects yet. Use Add redirect to send visitors from an old address to a new one.
+            </Text>
+          )}
+          {overview && rules.length > 0 && (
             <>
               <Group gap="8">
                 {errors > 0 && (
@@ -293,48 +332,42 @@ function RedirectManager({context}: {context: ExtensionContext}) {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHeaderCell>From</TableHeaderCell>
-                    <TableHeaderCell>To</TableHeaderCell>
-                    <TableHeaderCell>Type</TableHeaderCell>
-                    <TableHeaderCell>Checks</TableHeaderCell>
+                    <TableHeaderCell>Redirect</TableHeaderCell>
+                    <TableHeaderCell>Problems</TableHeaderCell>
                     <TableHeaderCell>Enabled</TableHeaderCell>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rules.map((rule) => (
-                    <TableRow key={rule.key}>
-                      <TableCell>
-                        <Text fontSize="sm" style={mono}>
-                          {rule.fromPath || '-'}
-                          {rule.matchSubpaths ? '/*' : ''}
-                        </Text>
-                        {rule.note && (
-                          <Text color="fg.tertiary" fontSize="xs">
-                            {rule.note}
-                          </Text>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Text fontSize="sm" style={mono}>
-                          {rule.toPath || '-'}
-                        </Text>
-                      </TableCell>
-                      <TableCell>
-                        <Text fontSize="sm">{rule.permanent ? 'Permanent (308)' : 'Temporary (307)'}</Text>
-                      </TableCell>
-                      <TableCell>
-                        <Issues issues={rule.issues} />
-                      </TableCell>
-                      <TableCell>
-                        <EnabledCell context={context} onChanged={changed} rule={rule} />
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {rules.map((rule) => {
+                    const open = destinationUrl(overview.siteUrl, rule.toPath);
+                    return (
+                      <TableRow key={rule.key}>
+                        <TableCell>
+                          <Group flexDirection="column" gap="4">
+                            <RuleText rule={rule} />
+                            {open && (
+                              <Box>
+                                <OpenLink appearance="subtle" size="sm" url={open}>
+                                  Open destination
+                                </OpenLink>
+                              </Box>
+                            )}
+                          </Group>
+                        </TableCell>
+                        <TableCell>
+                          <Issues issues={rule.issues} />
+                        </TableCell>
+                        <TableCell>
+                          <EnabledCell context={context} onChanged={changed} rule={rule} />
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
               <Text color="fg.tertiary" fontSize="xs">
-                Checked {overview ? new Date(overview.checkedAt).toLocaleTimeString() : ''}. Rules apply longest From first; a rule
-                with /* also redirects everything under its path.
+                Checked {new Date(overview.checkedAt).toLocaleTimeString()}. When two redirects overlap, the one with the longer From
+                address wins.
               </Text>
             </>
           )}

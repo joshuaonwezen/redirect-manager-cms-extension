@@ -10,6 +10,7 @@ const INTENT: Record<Severity, 'danger' | 'warning' | 'information'> = {
 const LABEL: Record<RuleIssue['code'], string> = {
   disabled: 'Disabled',
   invalid: 'Incomplete',
+  ignored: 'Ignored by the site',
   duplicate: 'Duplicate',
   self: 'Points at itself',
   loop: 'Loop',
@@ -17,18 +18,12 @@ const LABEL: Record<RuleIssue['code'], string> = {
   dead: 'Dead end',
   shadows_page: 'Hides a page',
   not_live: 'Not live yet',
-  not_applied: 'Changed, not applied',
+  not_applied: 'Not applied yet',
 };
 
-/** One badge per issue, with its explanation under it. */
+/** One badge per problem, with its explanation under it. Nothing at all for a rule without one. */
 export function Issues({issues}: {issues: RuleIssue[]}) {
-  if (issues.length === 0) {
-    return (
-      <Badge intent="success" variant="subtle">
-        OK
-      </Badge>
-    );
-  }
+  if (issues.length === 0) return null;
   return (
     <Group flexDirection="column" gap="4">
       {issues.map((issue) => (
