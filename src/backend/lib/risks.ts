@@ -19,7 +19,7 @@ export function isBroad(rule: Pick<NewRule, 'fromPath' | 'matchSubpaths'>): bool
 
 /**
  * The first published page the rule would send visitors away from, or null. /x and /en/x
- * count as the same page, as the site's catch-all serves both.
+ * count as the same page, as a site routed by Graph URLs serves both.
  */
 export function hiddenPage(rule: Pick<NewRule, 'fromPath' | 'matchSubpaths'>, pageUrls: string[], locale: string): string | null {
   const strip = (p: string) => withoutLocale(p, locale) ?? norm(p);

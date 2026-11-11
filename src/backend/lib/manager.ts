@@ -469,7 +469,7 @@ export function createManager(cfg: LoadedSettings, deps: ManagerDeps = defaultDe
       if (!rulePublished) return {published: false, message: `${what} for approval. It goes live once a reviewer approves it.`, rule};
 
       // The site reads the rules through the list, and Graph refreshes its copy of a rule there
-      // minutes after the rule itself (seen on joshCMS). Publishing the list refreshes it.
+      // minutes after the rule itself (seen on SaaS CMS). Publishing the list refreshes it.
       try {
         const {published} = await publishWithChanges(cms, configKey, locale, LIST, (props) => props);
         return {

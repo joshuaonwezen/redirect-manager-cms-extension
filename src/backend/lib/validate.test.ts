@@ -2,12 +2,12 @@ import {describe, expect, it} from 'vitest';
 
 import {isAction, PARSERS} from './validate';
 
-const KEY = '3525e1552b6f46158be2850ff6e6fb74';
+const KEY = '0f8e2d6c4b1a49e7a3c5d7f9b2e4c6a8';
 const rule = (fromPath: unknown, toPath: unknown, extra: Record<string, unknown> = {}) => ({fromPath, toPath, ...extra});
 
 describe('pageRedirects', () => {
   it('normalizes the key, defaults the locale and drops unknown fields', () => {
-    expect(PARSERS.pageRedirects({key: '3525E155-2b6f-4615-8be2-850ff6e6fb74', path: '/en/about', extra: 1})).toEqual({
+    expect(PARSERS.pageRedirects({key: '0F8E2D6C-4b1a-49e7-a3c5-d7f9b2e4c6a8', path: '/en/about', extra: 1})).toEqual({
       key: KEY,
       locale: 'en',
       path: '/en/about',

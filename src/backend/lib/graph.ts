@@ -22,7 +22,7 @@ export async function graphQuery<T>(cfg: GraphConfig, query: string, variables: 
   return body.data;
 }
 
-// Newest first, like the site's GetRedirectRules: the site reads items[0] only. No `where` on
+// Newest first, like the site's own rule loader: only items[0] counts. No `where` on
 // `enabled` - a field Graph hasn't synced as queryable errors the whole query.
 const REDIRECT_CONFIGS = /* GraphQL */ `
   query RedirectConfigs {

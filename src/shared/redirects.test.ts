@@ -13,11 +13,11 @@ import {
   type KeyedRule,
 } from './redirects';
 
-// The site's behavior (optimizely-nextjs-demo src/lib/redirects.ts + GetRedirectRules.ts).
+// The behavior a site applies (README: What your site needs).
 // If one of these fails after a change on the site, update redirects.ts to match it.
 
-// normalizeRedirectPath() input -> output, as the site's GetRedirectRules.ts answers it
-// (site commit a2cd291, "Stop CMS redirect rules from sending visitors off-site"). "" means
+// normalizeRedirectPath() input -> output, as a site that follows the pattern answers it
+// (including dropping paths a browser would read as another website). "" means
 // the site drops the rule. Change this table and the site's function together.
 const NORMALIZE_TABLE: Array<[string, string]> = [
   [' savings//accounts/ ', '/savings/accounts'],

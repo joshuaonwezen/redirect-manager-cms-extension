@@ -1,9 +1,8 @@
 // The site's redirect rules, reproduced so the extension sees exactly what visitors get.
-// Mirrors optimizely-nextjs-demo:
-// - normalizeRedirectPath() and the filter/sort in getRedirectRules()
-//   (src/lib/graphql/queries/GetRedirectRules.ts);
-// - norm() and matchRedirect() (src/lib/redirects.ts).
-// Keep them in step - redirects.test.ts pins the site's behavior.
+// It follows the rules a site must implement (README: What your site needs):
+// - normalizeRedirectPath() and the filter/sort applied when the rules are loaded;
+// - norm() and matchRedirect(), used on every request.
+// Keep them in step with the site - redirects.test.ts pins that behavior.
 // Shared by the browser and the backend: no Node built-ins, no browser globals.
 
 export interface RedirectRule {
@@ -370,8 +369,8 @@ export function withoutLocale(pathname: string, locale: string): string | null {
 }
 
 /**
- * Whether two paths serve the same page. The site's catch-all tries /{locale}{path} before
- * {path}, so /personal/savings and /en/personal/savings are one page.
+ * Whether two paths serve the same page. A site routed by Graph URLs answers on both
+ * /{locale}{path} and {path}, so /personal/savings and /en/personal/savings are one page.
  */
 export function samePage(a: string, b: string, locale: string): boolean {
   if (isAbsolute(a) || isAbsolute(b)) return a === b;
