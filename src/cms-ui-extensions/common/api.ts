@@ -45,6 +45,18 @@ export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Request failed.';
 }
 
+// Errors only a CMS admin can fix (app settings): no Retry, a warning rather than an error.
+const ADMIN_FIXES = new Set(['not_configured', 'site_unknown']);
+
+export function needsAdmin(error: unknown): boolean {
+  return error instanceof CallError && ADMIN_FIXES.has(error.code);
+}
+
 export function isNotConfigured(error: unknown): boolean {
   return error instanceof CallError && error.code === 'not_configured';
+}
+
+/** The backend can't tell which site to check: a CMS admin sets the Site URL. Its message says so. */
+export function isSiteUnknown(error: unknown): boolean {
+  return error instanceof CallError && error.code === 'site_unknown';
 }

@@ -77,6 +77,17 @@ describe('addRule', () => {
     expect(() => PARSERS.addRule(rule('/old', toPath))).toThrow(why);
   });
 
+  it("accepts the sidebar's page URL only as an https address", () => {
+    expect(PARSERS.addRule(rule('/old', '/new', {pageUrl: 'https://www.example.com/en/new/'}))).toMatchObject({
+      pageUrl: 'https://www.example.com/en/new/',
+    });
+    expect(PARSERS.addRule(rule('/old', '/new', {pageUrl: ''})).pageUrl).toBeUndefined();
+    expect(() => PARSERS.addRule(rule('/old', '/new', {pageUrl: 'http://www.example.com/x'}))).toThrow(/https/);
+    expect(() => PARSERS.addRule(rule('/old', '/new', {pageUrl: 'not a url'}))).toThrow(/web address/);
+    expect(() => PARSERS.addRule(rule('/old', '/new', {pageUrl: `https://x.example/${'a'.repeat(2048)}`}))).toThrow(/2048/);
+    expect(() => PARSERS.addRule(rule('/old', '/new', {pageUrl: 42}))).toThrow(/text/);
+  });
+
   it('caps the note and accepts only known confirmations', () => {
     expect(() => PARSERS.addRule(rule('/old', '/new', {note: 'x'.repeat(501)}))).toThrow(/500/);
     expect(() => PARSERS.addRule(rule('/old', '/new', {confirm: ['everything']}))).toThrow(/confirmation/);

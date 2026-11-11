@@ -1,7 +1,7 @@
 import {Alert, AxiomProvider, Box, Button, Group, Heading, Spinner, Text} from '@optiaxiom/react';
 import type {ReactNode} from 'react';
 
-import {errorMessage, isNotConfigured} from './api';
+import {errorMessage, isNotConfigured, needsAdmin} from './api';
 
 /**
  * The sidebar chrome: the open page's name and one context line (never the extension's
@@ -41,17 +41,16 @@ export function Frame({
             </Group>
           )}
           {error ? (
-            <Alert intent={isNotConfigured(error) ? 'warning' : 'danger'}>
+            <Alert intent={needsAdmin(error) ? 'warning' : 'danger'}>
               <Group flexDirection="column" gap="8">
                 <Text fontSize="sm">{errorMessage(error)}</Text>
-                {isNotConfigured(error) ? (
+                {isNotConfigured(error) && (
                   <Text fontSize="sm">Ask a CMS admin to fill them in on this app&apos;s settings page.</Text>
-                ) : (
-                  onRetry && (
-                    <Button onClick={onRetry} size="sm">
-                      Retry
-                    </Button>
-                  )
+                )}
+                {!needsAdmin(error) && onRetry && (
+                  <Button onClick={onRetry} size="sm">
+                    Retry
+                  </Button>
                 )}
               </Group>
             </Alert>

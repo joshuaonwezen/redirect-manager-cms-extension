@@ -48,3 +48,17 @@ describe('CmsClient writes', () => {
     expect(await client().publishVersion(KEY, '7')).toBe('awaiting_approval');
   });
 });
+
+describe('CmsClient.listApplications', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('reads the applications from a page or a bare list', async () => {
+    const app = {key: 'site', hosts: [{authority: 'www.example.com', type: 'primary'}]};
+    stubCms({'GET /v1/applications': [[200, {items: [app]}], [200, [app]], [200, null]]});
+    expect(await client().listApplications()).toEqual([app]);
+    expect(await client().listApplications()).toEqual([app]);
+    expect(await client().listApplications()).toEqual([]);
+  });
+});

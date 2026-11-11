@@ -1,4 +1,5 @@
 import {ApiError, requestJson} from './http';
+import type {CmsApplication} from './siteUrl';
 
 const CMS_API = 'https://api.cms.optimizely.com';
 const EXPIRY_BUFFER_MS = 30_000;
@@ -124,6 +125,13 @@ export class CmsClient {
     }
     const after = await this.getVersion(key, version);
     return after?.status === 'published' ? 'published' : 'awaiting_approval';
+  }
+
+  /** The CMS's applications (Settings > Applications), each with the hosts its site is served on. */
+  public async listApplications(): Promise<CmsApplication[]> {
+    const body = await this.get<{items?: CmsApplication[] | null} | CmsApplication[]>('List applications', '/v1/applications');
+    if (Array.isArray(body)) return body;
+    return body?.items ?? [];
   }
 
   /** Null when the content doesn't exist (deleted, or never did). */

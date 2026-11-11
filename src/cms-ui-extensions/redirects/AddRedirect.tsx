@@ -16,7 +16,7 @@ import type {AddRuleParams, WriteResult} from '@shared/types';
 import {useMemo, useState} from 'react';
 
 import {call, CallError, errorMessage} from '../common/api';
-import {mono} from './parts';
+import {ErrorAlert, mono} from './parts';
 
 /** A risky addition the backend wants confirmed, and the code that confirms it on the retry. */
 interface Pending {
@@ -28,11 +28,12 @@ interface Pending {
 /**
  * Sends one new rule. When the backend refuses it as risky (another website, a missing
  * destination, a page it would hide, a whole section), the refusal waits in `pending` until
- * the editor confirms it, and the retry carries that confirmation.
+ * the editor confirms it, and the retry carries that confirmation. From the sidebar,
+ * `pageUrl` (the open page's URL) tells the backend which site to check the rule on.
  */
-export function useAddRule(context: ExtensionContext, onDone: (result: WriteResult) => void) {
+export function useAddRule(context: ExtensionContext, onDone: (result: WriteResult) => void, pageUrl?: string) {
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [pending, setPending] = useState<Pending | null>(null);
 
   const send = async (params: AddRuleParams) => {
@@ -48,7 +49,7 @@ export function useAddRule(context: ExtensionContext, onDone: (result: WriteResu
         setPending({params, code, message: errorMessage(e)});
       } else {
         setPending(null);
-        setError(errorMessage(e));
+        setError(e);
       }
     } finally {
       setBusy(false);
@@ -59,7 +60,7 @@ export function useAddRule(context: ExtensionContext, onDone: (result: WriteResu
     busy,
     error,
     pending,
-    submit: (rule: NewRule) => send({...rule, confirm: []}),
+    submit: (rule: NewRule) => send({...rule, confirm: [], ...(pageUrl ? {pageUrl} : {})}),
     confirm: () => (pending ? send({...pending.params, confirm: [...pending.params.confirm, pending.code]}) : Promise.resolve()),
     cancel: () => setPending(null),
   };
@@ -97,12 +98,14 @@ export function AddRedirect({
   context,
   existing,
   fixedTo,
+  pageUrl,
   onDone,
   onCancel,
 }: {
   context: ExtensionContext;
   existing: RawRule[];
   fixedTo?: string;
+  pageUrl?: string;
   onDone: (result: WriteResult) => void;
   onCancel: () => void;
 }) {
@@ -112,7 +115,7 @@ export function AddRedirect({
   const [matchSubpaths, setMatchSubpaths] = useState(false);
   const [note, setNote] = useState('');
   const [touched, setTouched] = useState(false);
-  const adder = useAddRule(context, onDone);
+  const adder = useAddRule(context, onDone, pageUrl);
 
   const toPath = fixedTo ?? toInput;
   const check = useMemo(
@@ -191,11 +194,7 @@ export function AddRedirect({
           <Text fontSize="sm">{w}</Text>
         </Alert>
       ))}
-      {adder.error && (
-        <Alert intent="danger">
-          <Text fontSize="sm">{adder.error}</Text>
-        </Alert>
-      )}
+      <ErrorAlert error={adder.error} />
       <RiskConfirm adder={adder} />
       <Text color="fg.tertiary" fontSize="xs">
         Publishes the redirect right away. It goes live on the site within a minute, or within the hour at the latest.

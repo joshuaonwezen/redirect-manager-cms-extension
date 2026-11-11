@@ -34,6 +34,7 @@ export interface Overview {
   rules: RuleRow[];
   /** What the site serves right now (its /api/redirects); null when it couldn't be read. */
   live: {count: number; pendingChanges: number} | null;
+  /** The site the checks ran on: the Site URL setting, else the CMS's only site. */
   siteUrl: string;
   checkedAt: string;
 }
@@ -78,6 +79,11 @@ export interface WriteResult {
 export type AddRuleParams = NewRule & {
   /** Risks the editor has seen and accepted ("Continue anyway"). */
   confirm: AddConfirm[];
+  /**
+   * From the sidebar: the open page's URL as the CMS reports it, so the rule is checked on
+   * that page's site. The backend uses it only when its host is one of the CMS's sites.
+   */
+  pageUrl?: string;
 };
 
 export type ActionParams = {

@@ -53,6 +53,23 @@ function toPath(raw: unknown): string {
   return value;
 }
 
+/**
+ * The open page's URL, as the editor reports it. Never fetched: pickSiteUrl only compares its
+ * origin with the CMS's application hosts.
+ */
+function pageUrl(raw: unknown): string | undefined {
+  const value = str(raw, 'Page URL', {optional: true});
+  if (!value) return undefined;
+  let protocol = '';
+  try {
+    protocol = new URL(value).protocol;
+  } catch {
+    invalid('Page URL', 'not a web address.');
+  }
+  if (protocol !== 'https:') invalid('Page URL', 'expected an https:// address.');
+  return value;
+}
+
 function confirms(raw: unknown): AddConfirm[] {
   if (raw === undefined || raw === null) return [];
   if (!Array.isArray(raw) || raw.length > ADD_CONFIRMS.length) invalid('confirm', 'expected a short list.');
@@ -90,6 +107,7 @@ export const PARSERS: Parsers = {
     matchSubpaths: p.matchSubpaths === true,
     note: str(p.note, 'Note', {optional: true, max: MAX_NOTE}) || undefined,
     confirm: confirms(p.confirm),
+    pageUrl: pageUrl(p.pageUrl),
   }),
   setEnabled: (p) => ({ruleKey: contentKey(p.ruleKey, 'Rule key'), enabled: p.enabled === true}),
 };

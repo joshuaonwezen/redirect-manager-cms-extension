@@ -24,6 +24,7 @@ import {pageUrls, redirectConfigs, ruleBlocks, type GraphConfigItem, type GraphR
 import {addRisks, hiddenPage, unconfirmed, type AddRisk} from './risks';
 import type {LoadedSettings} from './settings';
 import {liveRules, siteStatus} from './site';
+import {pickSiteUrl, siteOrigins, type SiteOrigins} from './siteUrl';
 import {publishedForChange, publishWithChanges, writeDenied} from './writes';
 
 const CONCURRENCY = 6;
@@ -36,14 +37,25 @@ const LIST = "The site's redirect list";
 // its cached /api/redirects expires (the site's 1-hour ceiling).
 const LIVE_HINT = 'It goes live on the site within a minute, or within the hour at the latest.';
 
+// Why the site for a request is unknown: no saved Site URL, and the CMS's applications don't
+// single one out. From the sidebar, the open page's host wasn't one of them.
+const SITE_UNKNOWN_PAGE =
+  "This page's address isn't one of this CMS's sites. Ask a CMS admin to set the Site URL in the app settings.";
+const SITE_UNKNOWN_SEVERAL =
+  "This CMS has more than one site. Ask a CMS admin to set the Site URL in the app settings to choose which site's redirects to check.";
+const SITE_UNKNOWN_NONE =
+  'This CMS has no site address in Settings > Applications. Ask a CMS admin to add one there, or to set the Site URL in the app settings.';
+
+const NO_ORIGINS: SiteOrigins = {all: [], primary: []};
+
 /** Everything the manager reads or writes through: the real clients, or fakes in tests. */
 export interface ManagerDeps {
   cms: CmsClient;
   redirectConfigs: () => Promise<GraphConfigItem[]>;
   ruleBlocks: (keys: string[]) => Promise<Map<string, GraphRule>>;
   pageUrls: () => Promise<string[]>;
-  siteStatus: (path: string) => Promise<{status: number | null; location: string | null}>;
-  liveRules: () => Promise<RedirectRule[] | null>;
+  siteStatus: (siteUrl: string, path: string) => Promise<{status: number | null; location: string | null}>;
+  liveRules: (siteUrl: string) => Promise<RedirectRule[] | null>;
 }
 
 export function defaultDeps(cfg: LoadedSettings): ManagerDeps {
@@ -52,8 +64,8 @@ export function defaultDeps(cfg: LoadedSettings): ManagerDeps {
     redirectConfigs: () => redirectConfigs(cfg.graph),
     ruleBlocks: (keys) => ruleBlocks(cfg.graph, keys),
     pageUrls: () => pageUrls(cfg.graph),
-    siteStatus: (path) => siteStatus(cfg.siteUrl, path),
-    liveRules: () => liveRules(cfg.siteUrl),
+    siteStatus,
+    liveRules,
   };
 }
 
@@ -104,6 +116,21 @@ const reasonOf = (error: unknown) => (error instanceof Error ? error.message : '
 export function createManager(cfg: LoadedSettings, deps: ManagerDeps = defaultDeps(cfg)) {
   const {cms} = deps;
 
+  /**
+   * The site this request checks: the saved Site URL, else the open page's own site (from the
+   * sidebar), else the CMS's only site. Resolved only by the actions that reach the site, so
+   * reading a page's redirects or switching one never depends on it.
+   */
+  async function siteFor(pageUrl?: string): Promise<string> {
+    const origins = cfg.siteUrl ? NO_ORIGINS : await siteOrigins(cfg.cms.clientId, () => cms.listApplications());
+    const site = pickSiteUrl(cfg.siteUrl, pageUrl, origins);
+    if (site) return site;
+    throw new ActionError(
+      'site_unknown',
+      pageUrl ? SITE_UNKNOWN_PAGE : origins.primary.length === 0 ? SITE_UNKNOWN_NONE : SITE_UNKNOWN_SEVERAL,
+    );
+  }
+
   async function current(): Promise<{config: GraphConfigItem | null; ignored: number}> {
     const configs = await deps.redirectConfigs();
     return {config: configs[0] ?? null, ignored: Math.max(0, configs.length - 1)};
@@ -145,20 +172,26 @@ export function createManager(cfg: LoadedSettings, deps: ManagerDeps = defaultDe
   }
 
   /** The destination's final stop, when it is a page on the site that doesn't exist. */
-  async function missingDestination(rule: NewRule, rules: FreshRule[]): Promise<string | null> {
+  async function missingDestination(rule: NewRule, rules: FreshRule[], pageUrl: string | undefined): Promise<string | null> {
     const t = trace(rule.toPath, effectiveRules(rules));
     if (t.loop || t.ignored || isAbsolute(t.final)) return null;
-    const {status} = await deps.siteStatus(t.final);
+    const {status} = await deps.siteStatus(await siteFor(pageUrl), t.final);
     return status === 404 || status === 410 ? t.final : null;
   }
 
   /** The first risk of adding `rule` the editor hasn't confirmed. The network checks run only when needed. */
-  async function firstRisk(rule: NewRule, rules: FreshRule[], locale: string, confirm: AddConfirm[]): Promise<AddRisk | null> {
+  async function firstRisk(
+    rule: NewRule,
+    rules: FreshRule[],
+    locale: string,
+    confirm: AddConfirm[],
+    pageUrl: string | undefined,
+  ): Promise<AddRisk | null> {
     const early = unconfirmed(addRisks(rule, {hiddenPage: null, missingDestination: null}), confirm);
     if (early) return early;
     const [pages, missing] = await Promise.all([
       confirm.includes('hides_page') ? [] : deps.pageUrls().catch(() => [] as string[]),
-      confirm.includes('destination_missing') ? null : missingDestination(rule, rules),
+      confirm.includes('destination_missing') ? null : missingDestination(rule, rules, pageUrl),
     ]);
     return unconfirmed(addRisks(rule, {hiddenPage: hiddenPage(rule, pages, locale), missingDestination: missing}), confirm);
   }
@@ -198,13 +231,14 @@ export function createManager(cfg: LoadedSettings, deps: ManagerDeps = defaultDe
 
   return {
     async overview(): Promise<Overview> {
+      const siteUrl = await siteFor();
       const [{config, ignored}, live, urls] = await Promise.all([
         current(),
-        deps.liveRules(),
+        deps.liveRules(siteUrl),
         deps.pageUrls().catch(() => [] as string[]),
       ]);
       const checkedAt = new Date().toISOString();
-      if (!config) return {config: null, ignoredConfigs: 0, rules: [], live: null, siteUrl: cfg.siteUrl, checkedAt};
+      if (!config) return {config: null, ignoredConfigs: 0, rules: [], live: null, siteUrl, checkedAt};
 
       const extra = new Map<string, RuleIssue[]>();
       const add = (key: string, issue: RuleIssue) => extra.set(key, [...(extra.get(key) ?? []), issue]);
@@ -253,7 +287,7 @@ export function createManager(cfg: LoadedSettings, deps: ManagerDeps = defaultDe
         finals.set(final, [...(finals.get(final) ?? []), r.source.key]);
       }
       await mapLimit([...finals.keys()], CONCURRENCY, async (final) => {
-        const {status} = await deps.siteStatus(final);
+        const {status} = await deps.siteStatus(siteUrl, final);
         if (status !== 404 && status !== 410) return;
         for (const key of finals.get(final) ?? []) {
           add(key, {code: 'dead', severity: 'error', message: `Ends on ${final}, which doesn't exist on the site.`});
@@ -265,7 +299,7 @@ export function createManager(cfg: LoadedSettings, deps: ManagerDeps = defaultDe
         ignoredConfigs: ignored,
         rules: toRows(config, extra),
         live: live ? {count: live.length, pendingChanges: pending} : null,
-        siteUrl: cfg.siteUrl,
+        siteUrl,
         checkedAt,
       };
     },
@@ -320,6 +354,7 @@ export function createManager(cfg: LoadedSettings, deps: ManagerDeps = defaultDe
     },
 
     async testUrl({url}: {url: string}): Promise<TestResult> {
+      const siteUrl = await siteFor();
       let input = url.trim();
       if (/^[a-z][a-z0-9+.-]*:/i.test(input)) {
         let parsed: URL;
@@ -328,8 +363,8 @@ export function createManager(cfg: LoadedSettings, deps: ManagerDeps = defaultDe
         } catch {
           throw new ActionError('invalid_url', "That address isn't valid. Type a path like /savings, or a full address on the site.");
         }
-        if (parsed.origin !== new URL(cfg.siteUrl).origin) {
-          throw new ActionError('other_site', `Test an address on ${cfg.siteUrl}, or just its path, like /savings.`);
+        if (parsed.origin !== new URL(siteUrl).origin) {
+          throw new ActionError('other_site', `Test an address on ${siteUrl}, or just its path, like /savings.`);
         }
         input = parsed.pathname;
       }
@@ -338,7 +373,7 @@ export function createManager(cfg: LoadedSettings, deps: ManagerDeps = defaultDe
       const {config} = await current();
       const effective = effectiveRules(config?.rules ?? []);
       const t = trace(path, effective);
-      const finalStatus = isAbsolute(t.final) || t.loop ? null : statusText(await deps.siteStatus(t.final));
+      const finalStatus = isAbsolute(t.final) || t.loop ? null : statusText(await deps.siteStatus(siteUrl, t.final));
       return {
         path,
         hops: t.hops.map((h) => ({from: h.from, to: h.to, status: h.status, ruleKey: h.rule.source.key})),
@@ -346,7 +381,7 @@ export function createManager(cfg: LoadedSettings, deps: ManagerDeps = defaultDe
         loop: t.loop,
         ignored: t.ignored,
         finalStatus,
-        openUrl: `${cfg.siteUrl}${path}`,
+        openUrl: `${siteUrl}${path}`,
       };
     },
 
@@ -356,7 +391,7 @@ export function createManager(cfg: LoadedSettings, deps: ManagerDeps = defaultDe
       const problems = Object.values(errors);
       if (problems.length > 0) throw new ActionError('invalid_rule', problems.join(' '));
 
-      const risk = await firstRisk(rule, rules, locale, input.confirm);
+      const risk = await firstRisk(rule, rules, locale, input.confirm, input.pageUrl);
       if (risk) throw new ActionError(risk.code, risk.message);
 
       // Before the rule exists: a refusal after it would leave a published rule the site never reads.

@@ -19,7 +19,10 @@ export type CmsSettings = {
 };
 
 export interface LoadedSettings {
-  /** Origin (plus optional path) without a trailing slash. */
+  /**
+   * The saved Site URL: origin (plus optional path) without a trailing slash. '' when left
+   * blank - the site then comes from the CMS's applications (see siteUrl.ts).
+   */
   siteUrl: string;
   graph: GraphConfig;
   cms: CmsConfig;
@@ -59,13 +62,13 @@ export async function loadConfig(): Promise<LoadedConfig> {
     readSection<GraphSettings>('graph'),
     readSection<CmsSettings>('cms'),
   ]);
-  const siteUrl = normalizeSiteUrl(site.siteUrl);
+  // Optional: blank (or anything unusable) falls back to the CMS's application hosts.
+  const siteUrl = normalizeSiteUrl(site.siteUrl) ?? '';
   const singleKey = graph.singleKey?.trim() ?? '';
   const clientId = cms.clientId?.trim() ?? '';
   const clientSecret = cms.clientSecret?.trim() ?? '';
 
   const missing = [
-    !siteUrl && 'Site URL',
     !singleKey && 'Graph single key',
     !clientId && 'CMS client ID',
     !clientSecret && 'CMS client secret',
@@ -73,5 +76,5 @@ export async function loadConfig(): Promise<LoadedConfig> {
 
   return missing.length > 0
     ? {ok: false, missing}
-    : {ok: true, config: {siteUrl: siteUrl!, graph: {singleKey}, cms: {clientId, clientSecret}}};
+    : {ok: true, config: {siteUrl, graph: {singleKey}, cms: {clientId, clientSecret}}};
 }

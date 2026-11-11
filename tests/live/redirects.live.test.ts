@@ -6,9 +6,10 @@ import {createManager} from '../../src/backend/lib/manager';
 
 // Read-only: reads the rules from Graph and the site, opens destinations on the site.
 // It never calls addRule or setEnabled - try those by hand, on a throwaway rule.
-// REDIRECTS_LIVE=1 OPTIMIZELY_CMS_CLIENT_ID=… OPTIMIZELY_CMS_CLIENT_SECRET=… OPTIMIZELY_GRAPH_SINGLE_KEY=… \
-// REDIRECTS_SITE_URL=https://optimizely-onboarding.vercel.app REDIRECTS_LIVE_KEY=<page key> \
-// REDIRECTS_LIVE_PATH=/en/personal/savings REDIRECTS_LIVE_OUT=/tmp/redirects.json yarn vitest run tests/live
+// REDIRECTS_SITE_URL is optional: without it the site comes from the CMS's applications.
+// REDIRECTS_LIVE=1 OPTIMIZELY_CMS_CLIENT_ID=<id> OPTIMIZELY_CMS_CLIENT_SECRET=<secret> OPTIMIZELY_GRAPH_SINGLE_KEY=<key> \
+// REDIRECTS_SITE_URL=https://www.example.com REDIRECTS_LIVE_KEY=<page key> \
+// REDIRECTS_LIVE_PATH=/en/about REDIRECTS_LIVE_OUT=/tmp/redirects.json yarn vitest run tests/live
 const live = process.env.REDIRECTS_LIVE === '1';
 
 describe.skipIf(!live)('redirects against a real CMS and site', () => {

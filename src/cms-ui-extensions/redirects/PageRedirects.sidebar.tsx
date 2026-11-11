@@ -8,21 +8,31 @@ import {Frame} from '../common/Frame';
 import {useContent} from '../common/useContent';
 import {AddRedirect, RiskConfirm, useAddRule} from './AddRedirect';
 import {Issues} from './Issues';
-import {mono, NoticeAlert, noticeOf, RuleText, useNotice} from './parts';
+import {ErrorAlert, mono, NoticeAlert, noticeOf, RuleText, useNotice} from './parts';
+
+/**
+ * The page's URL for the backend to pick its site by, or undefined. Only an https URL the
+ * backend's check accepts: anything else would fail the request instead of falling back.
+ */
+function sitePageUrl(publicUrl: string | null): string | undefined {
+  return publicUrl && /^https:\/\//i.test(publicUrl) && publicUrl.length <= 2048 ? publicUrl : undefined;
+}
 
 /** The page moved: one confirmation sends its old address here. */
 function RenameFix({
   context,
   oldPath,
   pagePath,
+  pageUrl,
   onDone,
 }: {
   context: ExtensionContext;
   oldPath: string;
   pagePath: string;
+  pageUrl?: string;
   onDone: (result: WriteResult) => void;
 }) {
-  const adder = useAddRule(context, onDone);
+  const adder = useAddRule(context, onDone, pageUrl);
   return (
     <Group flexDirection="column" gap="8">
       <Alert intent="warning">
@@ -49,11 +59,7 @@ function RenameFix({
         </Group>
       </Alert>
       <RiskConfirm adder={adder} />
-      {adder.error && (
-        <Alert intent="danger">
-          <Text fontSize="sm">{adder.error}</Text>
-        </Alert>
-      )}
+      <ErrorAlert error={adder.error} />
     </Group>
   );
 }
@@ -129,6 +135,7 @@ function PageRedirects({context}: {context: ExtensionContext}) {
   }
 
   const {key, locale, path} = content;
+  const pageUrl = sitePageUrl(content.publicUrl);
   const result = loaded && loaded.page === `${key}|${locale}|${path}` ? loaded.data : null;
   const reload = () => void load(key, locale, path);
   const done = (r: WriteResult) => {
@@ -163,7 +170,14 @@ function PageRedirects({context}: {context: ExtensionContext}) {
                 Its old address <span style={mono}>{oldPath}</span> redirects to <span style={mono}>{coveredBy.toPath}</span>.
               </Text>
             ) : (
-              <RenameFix context={context} key={oldPath} oldPath={oldPath} onDone={done} pagePath={result.path} />
+              <RenameFix
+                context={context}
+                key={oldPath}
+                oldPath={oldPath}
+                onDone={done}
+                pagePath={result.path}
+                pageUrl={pageUrl}
+              />
             ),
           )}
 
@@ -185,6 +199,7 @@ function PageRedirects({context}: {context: ExtensionContext}) {
               fixedTo={result.path}
               onCancel={() => setAdding(false)}
               onDone={done}
+              pageUrl={pageUrl}
             />
           ) : (
             <Button onClick={() => setAdding(true)}>Add a redirect to this page</Button>

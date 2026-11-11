@@ -24,11 +24,11 @@ import {register, type ExtensionContext} from '@optimizely/cms-extensibility-sdk
 import type {Overview, RuleRow, TestResult, WriteResult} from '@shared/types';
 import {useCallback, useEffect, useState} from 'react';
 
-import {call, errorMessage, isNotConfigured} from '../common/api';
+import {call, errorMessage, isNotConfigured, isSiteUnknown} from '../common/api';
 import {OpenLink} from '../common/OpenLink';
 import {AddRedirect} from './AddRedirect';
 import {Issues, worst} from './Issues';
-import {destinationUrl, mono, NoticeAlert, noticeOf, RuleText, useNotice} from './parts';
+import {destinationUrl, ErrorAlert, mono, NoticeAlert, noticeOf, RuleText, useNotice} from './parts';
 
 const isWebUrl = (url: string) => /^https?:\/\//i.test(url);
 
@@ -36,7 +36,7 @@ function TestUrl({context}: {context: ExtensionContext}) {
   const [url, setUrl] = useState('');
   const [result, setResult] = useState<TestResult | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
 
   async function test() {
     if (!url.trim()) return;
@@ -46,7 +46,7 @@ function TestUrl({context}: {context: ExtensionContext}) {
       setResult(await call(context, 'testUrl', {url}));
     } catch (e) {
       setResult(null);
-      setError(errorMessage(e));
+      setError(e);
     } finally {
       setBusy(false);
     }
@@ -70,11 +70,7 @@ function TestUrl({context}: {context: ExtensionContext}) {
           Test
         </Button>
       </Group>
-      {error && (
-        <Alert intent="danger">
-          <Text fontSize="sm">{error}</Text>
-        </Alert>
-      )}
+      <ErrorAlert error={error} />
       {result && (
         <Group flexDirection="column" gap="4">
           {result.hops.length === 0 ? (
@@ -264,10 +260,14 @@ function RedirectManager({context}: {context: ExtensionContext}) {
           </Group>
 
           {error ? (
-            <Alert intent={isNotConfigured(error) ? 'warning' : 'danger'}>
+            <Alert intent={isNotConfigured(error) || isSiteUnknown(error) ? 'warning' : 'danger'}>
               <Text fontSize="sm">
                 {errorMessage(error)}
-                {isNotConfigured(error) ? " Ask a CMS admin to fill them in on this app's settings page." : ' Refresh to try again.'}
+                {isNotConfigured(error)
+                  ? " Ask a CMS admin to fill them in on this app's settings page."
+                  : isSiteUnknown(error)
+                    ? ''
+                    : ' Refresh to try again.'}
               </Text>
             </Alert>
           ) : null}

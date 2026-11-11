@@ -3,6 +3,8 @@ import {isAbsolute, normalizeRedirectPath} from '@shared/redirects';
 import type {RuleRow, WriteResult} from '@shared/types';
 import {useEffect, useState} from 'react';
 
+import {errorMessage, isNotConfigured, isSiteUnknown} from '../common/api';
+
 export const mono = {fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', overflowWrap: 'anywhere' as const};
 
 const NOTICE_MS = 10_000;
@@ -31,6 +33,16 @@ export function NoticeAlert({notice}: {notice: Notice | null}) {
   return (
     <Alert intent={notice.partial ? 'warning' : 'success'}>
       <Text fontSize="sm">{notice.text}</Text>
+    </Alert>
+  );
+}
+
+/** A failed call: a gap in the app settings as a plain warning, anything else as an error. */
+export function ErrorAlert({error}: {error: unknown}) {
+  if (!error) return null;
+  return (
+    <Alert intent={isNotConfigured(error) || isSiteUnknown(error) ? 'warning' : 'danger'}>
+      <Text fontSize="sm">{errorMessage(error)}</Text>
     </Alert>
   );
 }

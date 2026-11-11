@@ -15,8 +15,19 @@ describe('settings', () => {
     vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
     expect(await loadConfig()).toEqual({
       ok: false,
-      missing: ['Site URL', 'Graph single key', 'CMS client ID', 'CMS client secret'],
+      missing: ['Graph single key', 'CMS client ID', 'CMS client secret'],
     });
+  });
+
+  it('does not require the Site URL', async () => {
+    await storage.settings.put('graph', {singleKey: 'k'});
+    await storage.settings.put('cms', {clientId: 'i', clientSecret: 's'});
+    expect(await loadConfig()).toEqual({
+      ok: true,
+      config: {siteUrl: '', graph: {singleKey: 'k'}, cms: {clientId: 'i', clientSecret: 's'}},
+    });
+    await storage.settings.put('site', {siteUrl: 'https://www.example.com/'});
+    expect(await loadConfig()).toMatchObject({ok: true, config: {siteUrl: 'https://www.example.com'}});
   });
 
   it('normalizes the site URL', () => {

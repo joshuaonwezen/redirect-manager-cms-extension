@@ -1,114 +1,168 @@
-# Redirects: CMS UI extension
+# Redirects
 
-An Optimizely CMS (SaaS) UI extension, built as a CMS-scoped OCP app. It manages the CMS-driven redirects of `optimizely-nextjs-demo` from inside the editor, and checks them against what the site actually does.
+Redirects lets editors manage the site's redirects without leaving Optimizely CMS. A full-page view lists every redirect with the problems it causes (loops, chains, dead ends, duplicates, rules the site ignores), and a sidebar on each page shows the redirects that lead to it and offers to cover an old address after the page's URL changes. Editors can add, enable and disable redirects; each change is checked against what the site actually does before it is published.
 
-## How the site's redirects work
-- Each rule is a **Redirect Rule** shared block: from path, to path, permanent (308) or temporary (307), "also redirect everything under this path", enabled, and a note.
-- The **Redirect Config** singleton lists the rules in its `rules` content area.
-- The site's middleware reads them through `GET /api/redirects` before any page renders:
-  - only the **newest** Redirect Config counts;
-  - disabled rules are dropped;
-  - a rule is dropped when a path has a backslash, whitespace or a control character (browsers can read `/\evil.example` as another host), or when its destination is `http://` rather than `https://`;
-  - the longest from path is tried first;
-  - a relative destination is only followed when it resolves on the site itself.
+Documentation: [walkthrough](https://opti.joshuaonwezen.dev/demo/cms-ui-extensions#redirects) - [install on another CMS instance](https://opti.joshuaonwezen.dev/demo/cms-ui-extensions#reuse) - [troubleshooting](https://opti.joshuaonwezen.dev/demo/cms-ui-extensions#troubleshooting)
 
-`src/shared/redirects.ts` reproduces that logic (`normalizeRedirectPath`, the filter and sort in `getRedirectRules()`, `matchRedirect()`, and the middleware's same-origin check as `followed()`), so the extension sees exactly what visitors get. `redirects.test.ts` pins the site's behavior, including a table of `normalizeRedirectPath` inputs and outputs. **When the site's redirect code changes, change it here too.**
+## What editors get
 
-## What it does
+**Extensions > Redirects** (full-page view):
+- every redirect as "From → To", permanent or temporary, its note, an **Enabled** switch and **Open destination**;
+- the problems of each one: **Loop**, **Chain** (A → B → C), **Dead end** (the destination doesn't exist on the site), **Duplicate** (an earlier rule has the same From, so this one never fires), **Points at itself**, **Incomplete**, **Disabled**, **Ignored by the site** (see the path rules below), **Hides a page** (a published page lives at the From address), **Not live yet** (saved, but the site doesn't serve it yet) and **Not applied yet** (changed, but Graph still has the previous version);
+- one status line: whether everything is live, and a warning when older redirect lists exist (they do nothing);
+- **Test a URL**: every redirect a visitor to an address goes through, where they end up, and how that page answers;
+- **Add redirect**, with permanent or temporary, "and everything under it", and a note.
 
-### Redirects view (Extensions in the navigation rail)
-Every rule, as "From → To" with Permanent/Temporary and the note, its problems (a rule without one shows none), an **Open destination** button and an **Enabled** switch. The checks:
-- **Ignored by the site:** a path the site drops (see above). Never shown as fine or as a dead end.
-- **Loop:** A → B → A, or a path that keeps growing.
-- **Chain:** A → B → C. Point A at C.
-- **Dead end:** the destination doesn't exist on the site.
-- **Duplicate:** an earlier rule has the same from path, so this one never fires.
-- **Points at itself**, **incomplete**, **disabled**.
-- **Hides a page:** a published page lives at the from path. Fine for a vanity URL.
-- **Not live yet:** saved in the CMS, but `/api/redirects` doesn't serve it yet.
-- **Not applied yet:** the rule block was changed, but Graph's copy of it inside Redirect Config is still the old one.
+**Redirects** sidebar, on a page:
+- the redirects that end on this page;
+- a warning when a redirect sends visitors away from the page's own address;
+- the page's earlier addresses (its URL segment changed) that nothing redirects yet, each fixed with one confirmation;
+- **Add a redirect to this page**: only the old address is asked.
 
-The view also has:
-- one status line: whether everything is live on the site, and a warning when older Redirect Config items exist (their rules do nothing);
-- **Test a URL** (collapsed): every hop a visitor goes through, how the final page answers, and **Open on the site**;
-- **Add redirect**, with permanent / "and everything under it" / note under **More options**;
-- an empty state when there are no rules, and a plain explanation when the instance has no Redirect Config.
+## Setup
 
-### Redirects sidebar (on a page)
-- The first line is the page's URL. "Open a page" when nothing is open; a note for items without a URL (blocks).
-- The redirects that end on this page, counting `/x` and `/en/x` as the same page, as the catch-all does.
-- A warning when a rule makes the page's own URL unreachable.
-- **URL changed:** an older version of the page had a different URL segment, and nothing redirects the old URL. One confirmation ("Send visitors from /old to this page?") adds the redirect.
-- **Add a redirect to this page:** only From is asked; To is the page.
-- Without a Redirect Config it explains that and offers no Add. After switching page, nothing acts on the previous page's result.
+1. Make sure the site follows the pattern in [What your site needs](#what-your-site-needs), and that the two content types exist in the CMS.
+2. Install the app on the CMS instance (see [Deploy](#deploy)), then fill in its settings:
 
-### Confirmations
-- **Enable/disable** asks inline before it publishes.
-- **Adding a risky redirect** is refused by the backend with a code; the UI shows the reason with **Continue anyway** / **Cancel**, and the retry sends the code in `confirm`. The codes:
-  - `external_destination`: the destination is another website;
-  - `destination_missing`: the destination (after any further redirects) doesn't exist on the site;
-  - `hides_page`: a published page lives at the from path (or under it, with "and everything under it");
-  - `broad_subpaths`: "and everything under it" on a one-segment path such as `/en`.
+| Setting | Required | Where to find it | Used for |
+|---|---|---|---|
+| Site URL | No | The site's public `https://` address, e.g. `https://www.example.com` | Which site the checks run on. Leave blank to use the site address in CMS **Settings > Applications**. Needed only when the CMS serves several sites. |
+| Graph single key | Yes | CMS **Settings > API Keys** | Reading the published redirects and the addresses of published pages |
+| CMS client ID and secret | Yes | CMS **Settings > API Keys**: create an API client. The secret is shown once. | Adding, enabling and disabling redirects (creating and publishing content), reading the current versions, and reading **Settings > Applications** |
 
-## Writes
-Every write runs as the CMS API client, so the CMS history shows that client, not the editor. Each successful write is logged as `audit` with the rule key, paths, flags and whether it was published.
+The CMS API client needs **write access to content**: every change publishes content. A client that can only read gets "can read content but not change it".
 
-- **Add redirect:**
-  1. Checks the input (`validate.ts`), then the rule against the CMS's current rules, read through the REST API because Graph lags behind a write: no duplicate, no loop, not the homepage, not a site-owned address (`/api/`, `/_next/`, `__v_`, `robots.txt`, ...).
-  2. Asks for any unconfirmed risk (above).
-  3. Checks that Redirect Config has no unpublished version **before** creating anything, so a refusal never leaves a rule the site doesn't read.
-  4. Creates a Redirect Rule block in the Redirect Config's own folder and publishes it.
-  5. Publishes a new Redirect Config version with the rule appended, then reads it back and confirms the rule is in it.
-- **Enable/disable:** checks both items for unpublished versions first, publishes a new version of the Redirect Rule, then Redirect Config again with its properties unchanged. The site reads the rules through Redirect Config, and Graph refreshes its copy of a rule there minutes after the rule itself (seen on joshCMS). If the rule changed but the second publish fails, the result says so plainly instead of failing the whole change.
-- **Each new version** is the draft that its own `POST /versions` returned, never "the newest draft", so two editors can't publish each other's draft. It is written with the full properties of the published version: `POST /versions` makes a blank draft, so a partial patch would wipe the rest.
-- **Publishing** re-reads the version's status. On an approval-workflow instance, both versions wait as drafts for a reviewer. A 403 becomes "the API key can read content but not change it".
-- **When it goes live:** once the site's cached `/api/redirects` refreshes. That is within a minute when the CMS publish webhook reaches the site, and within an hour (the site's cache ceiling) without it.
+How the site is chosen when **Site URL** is blank: the sidebar uses the open page's own site (when its host is listed in Settings > Applications), and the view uses the CMS's only primary host. On a CMS with several sites, the view asks for the setting. Only `https` hosts are used.
 
-Re-running the site's `scripts/seed-redirects.ts` rebuilds Redirect Config from the seed's own list, so rules added here drop out of it. Their blocks stay in the Redirects folder.
+## What your site needs
 
-## Platform constraints (CMS UI extensions beta, SDK 1.1.0)
-- **The extension context is only `{key, version, locale, publicUrl}`.** The page's path comes from `publicUrl`.
-- **Extensions get no CMS token.** The app stores a CMS API client in its settings.
-- **Reading settings an install never saved throws** in the production runtime. `readSection` treats that as empty.
+The extension reads and writes the redirects as CMS content, and assumes the site applies them as described here. `src/shared/redirects.ts` has no dependencies and implements every rule below (`normalizeRedirectPath`, `effectiveRules`, `matchRedirect`, `followed`), so you can use it as the reference for your own code.
 
-## Settings
-- **Site:** the front end for this CMS instance, `https://` only, e.g. `https://optimizely-onboarding.vercel.app` for joshCMS.
-- **Optimizely Graph:** the instance's single key.
-- **CMS API client:** **with content write access**.
+### Content types
+
+Both are blocks (base type `_component`) and must be indexed by Optimizely Graph under exactly these keys. Don't exclude any of these properties from indexing: the extension queries all of them.
+
+**`RedirectConfig`**, the redirect list. Create one item, in a folder editors can reach; new rules are created in the same folder.
+
+| Property | Type | Meaning |
+|---|---|---|
+| `rules` | Content area (`array` of `content`) allowing `RedirectRule` | The redirects, in any order |
+| `notes` | String | Notes for editors |
+
+**`RedirectRule`**, one redirect.
+
+| Property | Type | Meaning |
+|---|---|---|
+| `fromPath` | String | The old address: a path on the site, like `/old-page` |
+| `toPath` | String | The new address: a path, or a full `https://` address |
+| `permanent` | Boolean | On: 308 Permanent Redirect. Off or empty: 307 Temporary Redirect |
+| `matchSubpaths` | Boolean | Also redirect every address under `fromPath` |
+| `enabled` | Boolean | Off: the site ignores the rule. Empty counts as on |
+| `note` | String | Why the redirect exists |
+
+### Reading the rules
+
+1. Query Graph for `RedirectConfig` ordered by `_metadata.lastModified` descending and use **only the first item**. Older items are ignored (the view warns about them).
+2. Drop a rule when `enabled` is `false`, or when `fromPath` or `toPath` is empty.
+3. Normalize `fromPath` and `toPath`:
+   - trim surrounding whitespace;
+   - drop any value that still contains a backslash, whitespace (including non-breaking spaces) or a control character (U+0000 to U+001F, U+007F): a browser can read `/\other.example` as another website;
+   - keep a full `https://` address (any case) unchanged, and drop an `http://` one;
+   - for a path, add a leading `/` when missing, collapse repeated slashes and remove the trailing slash (except for `/` itself).
+4. Drop a rule whose `fromPath` or `toPath` came out empty.
+5. Sort the rules by `fromPath` length, **longest first**, so an exact rule beats a shorter "everything under it" rule.
+
+### Applying them
+
+Run this before your pages render (in middleware or an edge function), for every request path:
+
+1. Compare paths case-insensitively, after collapsing repeated slashes and removing the trailing slash.
+2. Try the rules in order; the first match wins:
+   - the path equals `fromPath`: the destination is `toPath`;
+   - `matchSubpaths` is on and the path starts with `fromPath` + `/`: the destination is `toPath` (without its trailing slash; empty when `toPath` is `/`) followed by the rest of the path, in its original case. `/old/a/b` with `/old` → `/new` becomes `/new/a/b`.
+3. Skip a rule (try the next one) when its destination is a relative path equal to the requested path, compared the same way: a self-loop.
+4. Answer **308** when `permanent` is on, **307** otherwise.
+5. An absolute destination is used as it is. A relative one is resolved against the site's own origin, and the redirect is **not sent** when the result is on another origin: a path such as `//other.example` would leave the site. The visitor then gets the page as if no rule matched.
+6. Carry the request's query string over when the destination has none of its own.
+
+Return a real **404** (or 410) status for pages that don't exist. The extension requests destinations on the site to find dead ends, and a "not found" page answered with 200 looks like a page that exists.
+
+### Going live
+
+Refresh the rules when content is published (the CMS publish webhook) and cache them for **at most an hour**. The extension tells editors a change goes live "within a minute, or within the hour at the latest".
+
+### Optional: the live-rules endpoint
+
+`GET https://<site>/api/redirects`, answering `200` with JSON within 8 seconds:
+
+```json
+{"rules": [{"fromPath": "/old-page", "toPath": "/new-page", "permanent": true, "matchSubpaths": false}]}
+```
+
+Return the rules the site applies right now, after the steps in [Reading the rules](#reading-the-rules) (enabled only, normalized, sorted). The view compares them with the saved rules to show **Not live yet**. Without the endpoint, the view says it couldn't ask the site which redirects are live, and everything else works.
+
+## Limits
+
+- One redirect list per CMS: the newest Redirect Config. Every site that reads it gets the same rules.
+- One site per check: the Site URL, the open page's site, or the CMS's only site.
+- Editors can add, enable and disable redirects here. Changing a rule's addresses, deleting a rule or editing the list is done in the CMS.
+- A redirect matches the path only: a From address can't contain `?` or `#`.
+- These From addresses are refused: `/` (the homepage), `/api/...`, `/_next/...`, `/favicon.ico`, `/robots.txt`, `/sitemap.xml`, and any path containing `__v_` (reserved for experiment variation routes).
+- The sidebar treats `/en/about` and `/about` as the same page: a leading language segment is ignored.
+- Graph indexes a publish within about a minute; until then the view can show **Not applied yet**. Checks cover up to 100 rules for **Not applied yet** and up to 2,000 published pages for **Hides a page**. A chain of 10 or more redirects is reported as a loop.
+- New rules are created in the redirect list's primary language.
+- The CMS history shows the API client as the author of every change, not the editor.
+
+## Security
+
+- **Confirmations.** Enabling or disabling asks first. Adding a risky redirect is refused until the editor confirms it with **Continue anyway**: one that sends visitors to another website, ends on a page that doesn't exist, hides a published page, or covers a whole section ("and everything under it" on a one-segment path such as `/en`).
+- **Audit log.** The CMS gives the extension no editor identity, so every successful change is logged in the app's logs as `audit`, with the action, the rule's key, both addresses, the flags and whether it was published.
+- **Off-site guard.** From must be a path; To must be a path or an `https://` address; addresses with a backslash, whitespace or control character are refused. Existing rules that the site would refuse to follow are marked **Ignored by the site**. The backend only requests pages on the resolved site: the page URL the editor's browser sends is used only when its host is one of the CMS's own application hosts, and never fetched directly.
+- **Write safety.** Every input is checked on the server before anything runs. A rule is checked against the CMS's current rules (read through the REST API, since Graph lags behind a write) for duplicates and loops. Before writing, the extension refuses when the redirect list or the rule has unpublished changes, so a later publish of someone's draft can't undo the change. Each new version is written with the full set of properties from the published version, then published; after adding, the published list is read back to confirm it carries the new rule. On an instance with an approval workflow, changes wait as drafts for a reviewer.
+- **Secrets.** The Graph key and the CMS client secret are stored as secret settings and never reach the browser.
 
 ## Develop
 
 ```bash
 yarn install
-yarn validate      # lint + typecheck + unit tests + build + ocp-app-sdk validate
-ocp dev -p 3100    # the view and sidebar in a simulated CMS host
+yarn validate      # lint, typecheck, unit tests, build and ocp-app-sdk validate
 ```
 
-The live suite only reads: it never adds or changes a rule.
+The live suite reads a real CMS, Graph and site. It never adds or changes a rule. `REDIRECTS_SITE_URL` is optional.
 
 ```bash
-REDIRECTS_LIVE=1 OPTIMIZELY_CMS_CLIENT_ID=… OPTIMIZELY_CMS_CLIENT_SECRET=… OPTIMIZELY_GRAPH_SINGLE_KEY=… \
-REDIRECTS_SITE_URL=https://optimizely-onboarding.vercel.app REDIRECTS_LIVE_KEY=<page key> \
-REDIRECTS_LIVE_PATH=/en/personal/savings REDIRECTS_LIVE_OUT=/tmp/redirects.json yarn vitest run tests/live
+REDIRECTS_LIVE=1 \
+OPTIMIZELY_CMS_CLIENT_ID=<client-id> OPTIMIZELY_CMS_CLIENT_SECRET=<client-secret> \
+OPTIMIZELY_GRAPH_SINGLE_KEY=<single-key> \
+REDIRECTS_SITE_URL=https://www.example.com \
+REDIRECTS_LIVE_KEY=<page-content-key> REDIRECTS_LIVE_PATH=/en/about \
+REDIRECTS_LIVE_OUT=/tmp/redirects.json \
+yarn vitest run tests/live
 ```
+
+## Deploy
+
+Run the OCP CLI with `npx -p @optimizely/ocp-cli-v2 ocp ...`, or install it and use `ocp`:
+
+```bash
+npx -p @optimizely/ocp-cli-v2 ocp app register    # once, with the app ID from meta.app_id in app.yml
+ocp app prepare --bump-dev-version --publish
+ocp directory install <app_id>@<version> --scope <cms-instance-uuid>
+```
+
+Publishing a new dev version moves existing installs onto it.
 
 ## Layout
 
 | Path | What |
 |---|---|
-| `src/shared/redirects.ts` | The site's matching, plus trace, checks and new-rule validation: shared by the UI and backend |
-| `src/backend/functions/CmsUiExtension.ts` | Action router: `overview`, `pageRedirects`, `testUrl`, `addRule`, `setEnabled`; audit log |
+| `src/shared/redirects.ts` | The site's matching rules, plus trace, checks and new-rule validation; shared by the UI and backend |
+| `src/backend/functions/CmsUiExtension.ts` | Action router (`overview`, `pageRedirects`, `testUrl`, `addRule`, `setEnabled`) and audit log |
 | `src/backend/lib/validate.ts` | One parser per action: every field checked before a handler runs |
-| `src/backend/lib/manager.ts` | The actions |
+| `src/backend/lib/manager.ts` | The actions, and which site each one checks |
+| `src/backend/lib/siteUrl.ts` | The site's address: the setting, or the CMS's application hosts |
 | `src/backend/lib/risks.ts` | The risks an addition must confirm |
 | `src/backend/lib/writes.ts` | Publishing a changed version without losing the other properties |
-| `src/backend/lib/graph.ts`, `site.ts`, `cms.ts` | Graph rules and page URLs, the site's status and `/api/redirects`, CMS REST |
-| `src/cms-ui-extensions/redirects/` | `RedirectManager.view.tsx`, `PageRedirects.sidebar.tsx`, the add form and its confirmations |
-
-## Deploy
-
-```bash
-ocp app register --appId cms_redirects --name "Redirects" --product HUB --personal   # once
-ocp app prepare --bump-dev-version --publish
-ocp directory install cms_redirects@<version> --scope <cms-instance-uuid>
-```
+| `src/backend/lib/graph.ts`, `site.ts`, `cms.ts` | Graph queries, requests to the site, CMS REST API |
+| `src/backend/lifecycle/Lifecycle.ts`, `forms/settings.yml` | The settings form and its checks |
+| `src/cms-ui-extensions/redirects/` | The view, the sidebar, the add form and its confirmations |

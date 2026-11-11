@@ -64,7 +64,13 @@ export class Lifecycle extends AppLifecycle {
   }
 
   private async saveSite(formData: SubmittedFormData, result: LifecycleSettingsResult) {
-    const siteUrl = normalizeSiteUrl(text(formData, 'siteUrl'));
+    const raw = text(formData, 'siteUrl');
+    // Optional: blank means the site address from CMS Settings > Applications.
+    if (!raw) {
+      await storage.settings.put('site', {siteUrl: ''});
+      return result.addToast('success', 'Site URL cleared: the site address from CMS Settings > Applications is used.');
+    }
+    const siteUrl = normalizeSiteUrl(raw);
     if (!siteUrl) return result.addError('siteUrl', 'A full https:// address, e.g. https://www.example.com.');
     try {
       const res = await fetch(siteUrl, {redirect: 'follow', signal: AbortSignal.timeout(10_000)});
