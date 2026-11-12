@@ -1,7 +1,7 @@
 meta:
   app_id: cms_redirects
   display_name: Redirects
-  version: 0.0.1-dev.4
+  version: 0.0.1-dev.5
   vendor: optimizely
   summary: See every redirect the site applies, find loops, chains and dead ends, and add redirects from the editor.
   support_url: https://www.optimizely.com
