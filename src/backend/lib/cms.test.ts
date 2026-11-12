@@ -43,6 +43,28 @@ describe('CmsClient writes', () => {
     expect(await client().publishVersion(KEY, '7')).toBe('awaiting_approval');
   });
 
+  it('waits out a read that still shows the draft right after publishing', async () => {
+    stubCms({
+      [`POST /v1/content/${KEY}/versions/7:publish`]: [[200, null]],
+      [`GET /v1/content/${KEY}/versions/7`]: [
+        [200, {key: KEY, version: '7', locale: 'en', status: 'draft'}],
+        [200, {key: KEY, version: '7', locale: 'en', status: 'published'}],
+      ],
+    });
+    expect(await client().publishVersion(KEY, '7', [0, 0, 0])).toBe('published');
+  });
+
+  it('still says waiting when the draft never shows as published', async () => {
+    stubCms({
+      [`POST /v1/content/${KEY}/versions/7:publish`]: [[200, null]],
+      [`GET /v1/content/${KEY}/versions/7`]: [
+        [200, {key: KEY, version: '7', locale: 'en', status: 'draft'}],
+        [200, {key: KEY, version: '7', locale: 'en', status: 'draft'}],
+      ],
+    });
+    expect(await client().publishVersion(KEY, '7', [0, 0])).toBe('awaiting_approval');
+  });
+
   it('treats "requires approval" as waiting for a reviewer', async () => {
     stubCms({[`POST /v1/content/${KEY}/versions/7:publish`]: [[400, {detail: 'Publishing requires approval.'}]]});
     expect(await client().publishVersion(KEY, '7')).toBe('awaiting_approval');
