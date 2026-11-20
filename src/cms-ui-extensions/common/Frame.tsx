@@ -2,15 +2,17 @@ import {Alert, AxiomProvider, Box, Button, Group, Heading, Spinner, Text} from '
 import type {ReactNode} from 'react';
 
 import {errorMessage, isNotConfigured, needsAdmin} from './api';
+import {STYLE} from './ui';
 
 /**
  * The sidebar chrome: the open page's name and one context line (never the extension's
  * name - the CMS already shows that above the panel), a busy spinner and one place for
- * load errors, with Retry.
+ * load errors, with Retry. It also carries the shared look (ui.tsx) for everything inside.
  */
 export function Frame({
   heading,
   subtitle,
+  actions,
   busy,
   error,
   onRetry,
@@ -18,6 +20,8 @@ export function Frame({
 }: {
   heading?: string;
   subtitle?: ReactNode;
+  /** Buttons for the header's right-hand side, such as Refresh. */
+  actions?: ReactNode;
   busy?: boolean;
   error?: unknown;
   onRetry?: () => void;
@@ -25,9 +29,10 @@ export function Frame({
 }) {
   return (
     <AxiomProvider>
-      <Box p="12">
+      <style>{STYLE}</style>
+      <Box className="ui" p="12">
         <Group flexDirection="column" gap="12">
-          {(heading || subtitle || busy) && (
+          {(heading || subtitle || busy || actions) && (
             <Group alignItems="start" gap="8" justifyContent="space-between">
               <Group flexDirection="column" gap="4" style={{flex: 1, minWidth: 0}}>
                 {heading && <Heading level="4">{heading}</Heading>}
@@ -37,7 +42,10 @@ export function Frame({
                   </Text>
                 )}
               </Group>
-              {busy && <Spinner size="sm" />}
+              <Group alignItems="center" gap="8" style={{flex: 'none'}}>
+                {busy && <Spinner size="sm" />}
+                {actions}
+              </Group>
             </Group>
           )}
           {error ? (

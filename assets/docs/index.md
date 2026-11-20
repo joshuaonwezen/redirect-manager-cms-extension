@@ -38,6 +38,8 @@ The CMS API client needs **write access to content**: every change publishes con
 
 Open **Extensions > Redirects** for every redirect, with its problems, a URL tester and **Add redirect**. Open the **Redirects** panel on a page for the redirects that lead to it, its earlier addresses that nothing redirects yet, and **Add a redirect to this page**.
 
+The open icon beside a destination copies its address, because the CMS doesn't let extensions open new tabs: paste it into a new tab, or right-click the icon and choose Open link in new tab.
+
 Enabling or disabling a redirect asks first. Adding one asks again when it is risky: it sends visitors to another website, ends on a page that doesn't exist, hides a published page, or covers a whole section of the site.
 
 A change publishes the redirect and the redirect list. It goes live on the site within a minute, or within the hour at the latest. On an instance with approvals, both wait as drafts for a reviewer.

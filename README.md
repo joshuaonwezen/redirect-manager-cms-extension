@@ -7,7 +7,7 @@ Documentation: [walkthrough](https://opti.joshuaonwezen.dev/demo/cms-ui-extensio
 ## What editors get
 
 **Extensions > Redirects** (full-page view):
-- every redirect as "From → To", permanent or temporary, its note, an **Enabled** switch and **Open destination**;
+- totals up top (redirects, with a problem, worth a look, disabled), then every redirect as "From → To", permanent or temporary, its note, an **Enabled** switch and an open icon for the destination;
 - the problems of each one: **Loop**, **Chain** (A → B → C), **Dead end** (the destination doesn't exist on the site), **Duplicate** (an earlier rule has the same From, so this one never fires), **Points at itself**, **Incomplete**, **Disabled**, **Ignored by the site** (see the path rules below), **Hides a page** (a published page lives at the From address), **Not live yet** (saved, but the site doesn't serve it yet) and **Not applied yet** (changed, but Graph still has the previous version);
 - one status line: whether everything is live, and a warning when older redirect lists exist (they do nothing);
 - **Test a URL**: every redirect a visitor to an address goes through, where they end up, and how that page answers;
@@ -112,6 +112,7 @@ Return the rules the site applies right now, after the steps in [Reading the rul
 - Graph indexes a publish within about a minute; until then the view can show **Not applied yet**. Checks cover up to 100 rules for **Not applied yet** and up to 2,000 published pages for **Hides a page**. A chain of 10 or more redirects is reported as a loop.
 - New rules are created in the redirect list's primary language.
 - The CMS history shows the API client as the author of every change, not the editor.
+- **Extensions can't open new tabs.** The CMS loads extensions in a sandboxed frame without `allow-popups`, so the destination's open icon and **Open on the site** are real links that copy themselves on a plain click; right-click › Open link in new tab opens them. Once the CMS allows popups, a plain click opens them.
 
 ## Security
 

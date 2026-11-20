@@ -1,11 +1,10 @@
 import {Alert, Group, Text} from '@optiaxiom/react';
 import {isAbsolute, normalizeRedirectPath} from '@shared/redirects';
 import type {RuleRow, WriteResult} from '@shared/types';
-import {useEffect, useState} from 'react';
+import {useEffect, useState, type ReactNode} from 'react';
 
 import {errorMessage, isNotConfigured, isSiteUnknown} from '../common/api';
-
-export const mono = {fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', overflowWrap: 'anywhere' as const};
+import {Code} from '../common/ui';
 
 const NOTICE_MS = 10_000;
 
@@ -47,18 +46,29 @@ export function ErrorAlert({error}: {error: unknown}) {
   );
 }
 
-/** One rule in words: where from, where to, and what kind. */
-export function RuleText({rule}: {rule: Pick<RuleRow, 'fromPath' | 'toPath' | 'permanent' | 'matchSubpaths' | 'note'>}) {
+/** One rule in words: where from, where to, and what kind. `open` sits after the destination. */
+export function RuleText({
+  rule,
+  open,
+}: {
+  rule: Pick<RuleRow, 'fromPath' | 'toPath' | 'permanent' | 'matchSubpaths' | 'note'>;
+  open?: ReactNode;
+}) {
   return (
-    <Group flexDirection="column" gap="2">
-      <Text fontSize="sm">
-        <span style={mono}>{rule.fromPath || '-'}</span>
-        {rule.matchSubpaths ? ' and everything under it' : ''} → <span style={mono}>{rule.toPath || '-'}</span>
-      </Text>
-      <Text color="fg.secondary" fontSize="xs">
+    <Group flexDirection="column" gap="4">
+      <span style={{display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '2px 6px', fontSize: 13}}>
+        <Code wrap>{rule.fromPath || '-'}</Code>
+        {rule.matchSubpaths && <span className="ui-muted ui-small">and everything under it</span>}
+        <span aria-label="to" className="ui-faint" style={{lineHeight: '16px'}}>
+          →
+        </span>
+        <Code wrap>{rule.toPath || '-'}</Code>
+        {open}
+      </span>
+      <span className="ui-faint ui-small">
         {rule.permanent ? 'Permanent' : 'Temporary'}
         {rule.note ? ` · ${rule.note}` : ''}
-      </Text>
+      </span>
     </Group>
   );
 }

@@ -1,14 +1,15 @@
-import {Alert, Button, Group, Separator, Text} from '@optiaxiom/react';
+import {Alert, Button, Group, Text} from '@optiaxiom/react';
 import {register, type ExtensionContext} from '@optimizely/cms-extensibility-sdk';
 import type {PageRedirects as PageResult, RuleRow, WriteResult} from '@shared/types';
 import {useCallback, useEffect, useRef, useState} from 'react';
 
 import {call} from '../common/api';
 import {Frame} from '../common/Frame';
+import {Code, count} from '../common/ui';
 import {useContent} from '../common/useContent';
 import {AddRedirect, RiskConfirm, useAddRule} from './AddRedirect';
 import {Issues} from './Issues';
-import {ErrorAlert, mono, NoticeAlert, noticeOf, RuleText, useNotice} from './parts';
+import {ErrorAlert, NoticeAlert, noticeOf, RuleText, useNotice} from './parts';
 
 /**
  * The page's URL for the backend to pick its site by, or undefined. Only an https URL the
@@ -38,11 +39,11 @@ function RenameFix({
       <Alert intent="warning">
         <Group flexDirection="column" gap="8">
           <Text fontSize="sm">
-            This page used to be at <span style={mono}>{oldPath}</span>. Links and bookmarks to that address now get a &quot;page
-            not found&quot;.
+            This page used to be at <Code>{oldPath}</Code>. Links and bookmarks to that address now get a &quot;page not
+            found&quot;.
           </Text>
           <Text fontSize="sm">
-            Send visitors from <span style={mono}>{oldPath}</span> to this page?
+            Send visitors from <Code>{oldPath}</Code> to this page?
           </Text>
           {!adder.pending && (
             <Button
@@ -66,10 +67,10 @@ function RenameFix({
 
 function InboundRule({rule}: {rule: RuleRow}) {
   return (
-    <Group flexDirection="column" gap="4">
+    <div className="ui-item" style={{gap: 8}}>
       <RuleText rule={rule} />
       <Issues issues={rule.issues} />
-    </Group>
+    </div>
   );
 }
 
@@ -144,8 +145,24 @@ function PageRedirects({context}: {context: ExtensionContext}) {
     reload();
   };
 
+  const refresh = (
+    <Button appearance="subtle" disabled={busy} onClick={reload} size="sm">
+      Refresh
+    </Button>
+  );
+
   return (
-    <Frame busy={busy} error={error} onRetry={reload} subtitle={`Page URL: ${result?.path ?? path}`}>
+    <Frame
+      actions={result ? refresh : undefined}
+      busy={busy}
+      error={error}
+      onRetry={reload}
+      subtitle={
+        <>
+          Page URL <Code>{result?.path ?? path}</Code>
+        </>
+      }
+    >
       <NoticeAlert notice={notice} />
       {result && !result.hasConfig && (
         <Alert intent="information">
@@ -157,18 +174,18 @@ function PageRedirects({context}: {context: ExtensionContext}) {
           {result.shadowedBy && (
             <Alert intent="danger">
               <Text fontSize="sm">
-                Visitors who open <span style={mono}>{result.shadowedBy.via}</span> never see this page: the redirect{' '}
-                <span style={mono}>{result.shadowedBy.rule.fromPath}</span> → <span style={mono}>{result.shadowedBy.rule.toPath}</span>{' '}
-                sends them away first. Disable it in Extensions &gt; Redirects if that isn&apos;t intended.
+                Visitors who open <Code>{result.shadowedBy.via}</Code> never see this page: the redirect{' '}
+                <Code>{result.shadowedBy.rule.fromPath}</Code> → <Code>{result.shadowedBy.rule.toPath}</Code> sends them away
+                first. Disable it in Extensions &gt; Redirects if that isn&apos;t intended.
               </Text>
             </Alert>
           )}
 
           {result.urlChanges.map(({oldPath, coveredBy}) =>
             coveredBy ? (
-              <Text color="fg.secondary" fontSize="sm" key={oldPath}>
-                Its old address <span style={mono}>{oldPath}</span> redirects to <span style={mono}>{coveredBy.toPath}</span>.
-              </Text>
+              <span className="ui-muted" key={oldPath} style={{fontSize: 13}}>
+                Its old address <Code>{oldPath}</Code> redirects to <Code>{coveredBy.toPath}</Code>.
+              </span>
             ) : (
               <RenameFix
                 context={context}
@@ -181,33 +198,42 @@ function PageRedirects({context}: {context: ExtensionContext}) {
             ),
           )}
 
-          <Separator />
-          <Text fontSize="sm" fontWeight="600">
-            Redirects to this page ({result.inbound.length})
-          </Text>
-          {result.inbound.length === 0 ? (
-            <Text color="fg.secondary" fontSize="sm">
-              None.
-            </Text>
-          ) : (
-            result.inbound.map((rule) => <InboundRule key={rule.key} rule={rule} />)
-          )}
-          {adding ? (
-            <AddRedirect
-              context={context}
-              existing={result.rules}
-              fixedTo={result.path}
-              onCancel={() => setAdding(false)}
-              onDone={done}
-              pageUrl={pageUrl}
-            />
-          ) : (
-            <Button onClick={() => setAdding(true)}>Add a redirect to this page</Button>
-          )}
-          <Text color="fg.tertiary" fontSize="xs">
-            The site has {result.rules.length} redirect{result.rules.length === 1 ? '' : 's'}. Extensions &gt; Redirects lists them
-            all, with checks.
-          </Text>
+          <div className="ui-card">
+            <div className="ui-card-title">
+              <span>Redirects to this page</span>
+              <span className="ui-faint ui-small">{result.inbound.length || 'none'}</span>
+            </div>
+            {result.inbound.length === 0 ? (
+              <span className="ui-muted ui-small">No redirect sends visitors here yet.</span>
+            ) : (
+              <div>
+                {result.inbound.map((rule) => (
+                  <InboundRule key={rule.key} rule={rule} />
+                ))}
+              </div>
+            )}
+            {adding ? (
+              <div style={{borderTop: '1px solid var(--ui-line)', paddingTop: 12}}>
+                <AddRedirect
+                  context={context}
+                  existing={result.rules}
+                  fixedTo={result.path}
+                  onCancel={() => setAdding(false)}
+                  onDone={done}
+                  pageUrl={pageUrl}
+                />
+              </div>
+            ) : (
+              <div>
+                <Button onClick={() => setAdding(true)} size="sm">
+                  Add a redirect to this page
+                </Button>
+              </div>
+            )}
+          </div>
+          <span className="ui-faint ui-small">
+            The site has {count(result.rules.length, 'redirect')}. Extensions &gt; Redirects lists them all, with checks.
+          </span>
         </Group>
       )}
     </Frame>

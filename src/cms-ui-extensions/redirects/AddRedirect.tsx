@@ -16,7 +16,8 @@ import type {AddRuleParams, WriteResult} from '@shared/types';
 import {useMemo, useState} from 'react';
 
 import {call, CallError, errorMessage} from '../common/api';
-import {ErrorAlert, mono} from './parts';
+import {Code} from '../common/ui';
+import {ErrorAlert} from './parts';
 
 /** A risky addition the backend wants confirmed, and the code that confirms it on the retry. */
 interface Pending {
@@ -150,7 +151,7 @@ export function AddRedirect({
       </Field>
       {fixedTo ? (
         <Text fontSize="sm">
-          To: this page, <span style={mono}>{fixedTo}</span>
+          To: this page, <Code>{fixedTo}</Code>
         </Text>
       ) : (
         <Field
@@ -163,7 +164,11 @@ export function AddRedirect({
         </Field>
       )}
       <Disclosure>
-        <DisclosureTrigger>More options</DisclosureTrigger>
+        <DisclosureTrigger>
+          <Text fontSize="sm" fontWeight="600">
+            More options
+          </Text>
+        </DisclosureTrigger>
         <DisclosureContent>
           <Group flexDirection="column" gap="12" pt="8">
             <Group flexDirection="column" gap="4">

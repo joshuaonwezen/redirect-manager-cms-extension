@@ -1,23 +1,15 @@
 import {
   Alert,
   AxiomProvider,
-  Badge,
   Box,
   Button,
   Disclosure,
   DisclosureContent,
   DisclosureTrigger,
   Group,
-  Heading,
   Input,
   Spinner,
   Switch,
-  Table,
-  TableBody,
-  TableCell,
-  TableHeader,
-  TableHeaderCell,
-  TableRow,
   Text,
 } from '@optiaxiom/react';
 import {register, type ExtensionContext} from '@optimizely/cms-extensibility-sdk';
@@ -26,9 +18,12 @@ import {useCallback, useEffect, useState} from 'react';
 
 import {call, errorMessage, isNotConfigured, isSiteUnknown} from '../common/api';
 import {OpenLink} from '../common/OpenLink';
+import {Code, count, Icon, STYLE, type ChipState, type IconName} from '../common/ui';
 import {AddRedirect} from './AddRedirect';
 import {Issues, worst} from './Issues';
-import {destinationUrl, ErrorAlert, mono, NoticeAlert, noticeOf, RuleText, useNotice} from './parts';
+import {destinationUrl, ErrorAlert, NoticeAlert, noticeOf, RuleText, useNotice} from './parts';
+
+const TIME = new Intl.DateTimeFormat('en-GB', {hour: '2-digit', minute: '2-digit'});
 
 const isWebUrl = (url: string) => /^https?:\/\//i.test(url);
 
@@ -53,7 +48,7 @@ function TestUrl({context}: {context: ExtensionContext}) {
   }
 
   return (
-    <Group flexDirection="column" gap="8" pt="8">
+    <Group flexDirection="column" gap="8" pb="8" pl="12" pr="8" pt="4">
       <Text color="fg.secondary" fontSize="sm">
         Every redirect a visitor to this address goes through, and where they end up.
       </Text>
@@ -75,20 +70,21 @@ function TestUrl({context}: {context: ExtensionContext}) {
         <Group flexDirection="column" gap="4">
           {result.hops.length === 0 ? (
             <Text fontSize="sm">
-              No redirect: <span style={mono}>{result.path}</span> opens as it is.
+              No redirect: <Code>{result.path}</Code> opens as it is.
             </Text>
           ) : (
             result.hops.map((hop, i) => (
               <Text fontSize="sm" key={`${hop.from}-${i}`}>
-                <span style={mono}>{hop.from}</span> → <span style={mono}>{hop.to}</span> ({hop.status === 308 ? 'permanent' : 'temporary'})
+                <Code>{hop.from}</Code> → <Code>{hop.to}</Code>{' '}
+                <span className="ui-faint">({hop.status === 308 ? 'permanent' : 'temporary'})</span>
               </Text>
             ))
           )}
           {result.ignored && (
             <Alert intent="warning">
               <Text fontSize="sm">
-                The site ignores the redirect to <span style={mono}>{result.ignored}</span>: browsers would read it as another website.
-                Visitors stay on <span style={mono}>{result.final}</span>.
+                The site ignores the redirect to <Code>{result.ignored}</Code>: browsers would read it as another website. Visitors
+                stay on <Code>{result.final}</Code>.
               </Text>
             </Alert>
           )}
@@ -99,20 +95,20 @@ function TestUrl({context}: {context: ExtensionContext}) {
           )}
           {result.finalStatus && (
             <Text color={result.finalStatus.ok ? 'fg.secondary' : 'fg.error'} fontSize="sm">
-              <span style={mono}>{result.final}</span>: {result.finalStatus.text}
+              <Code>{result.final}</Code>: {result.finalStatus.text}
             </Text>
           )}
           {!result.finalStatus && !result.loop && result.hops.length > 0 && (
             <Text color="fg.secondary" fontSize="sm">
-              Ends on another website: <span style={mono}>{result.final}</span>
+              Ends on another website: <Code>{result.final}</Code>
             </Text>
           )}
           {isWebUrl(result.openUrl) && (
-            <Box>
+            <div>
               <OpenLink size="sm" url={result.openUrl}>
                 Open on the site
               </OpenLink>
-            </Box>
+            </div>
           )}
         </Group>
       )}
@@ -202,6 +198,13 @@ function SiteStatus({overview}: {overview: Overview}) {
   );
 }
 
+const TILES: Array<{key: 'all' | 'error' | 'warning' | 'disabled'; label: string; state: ChipState; icon: IconName}> = [
+  {key: 'all', label: 'Redirects', state: 'good', icon: 'arrow'},
+  {key: 'error', label: 'With a problem', state: 'bad', icon: 'cross'},
+  {key: 'warning', label: 'Worth a look', state: 'warn', icon: 'alert'},
+  {key: 'disabled', label: 'Disabled', state: 'neutral', icon: 'pause'},
+];
+
 function RedirectManager({context}: {context: ExtensionContext}) {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [error, setError] = useState<unknown>(null);
@@ -232,28 +235,36 @@ function RedirectManager({context}: {context: ExtensionContext}) {
   };
 
   const rules = overview?.rules ?? [];
-  const errors = rules.filter((r) => worst(r.issues) === 'error').length;
-  const warnings = rules.filter((r) => worst(r.issues) === 'warning').length;
+  const tally = {
+    all: rules.length,
+    error: rules.filter((r) => worst(r.issues) === 'error').length,
+    warning: rules.filter((r) => worst(r.issues) === 'warning').length,
+    disabled: rules.filter((r) => !r.enabled).length,
+  };
 
   return (
     <AxiomProvider>
-      <Box p="24">
-        <Group flexDirection="column" gap="16">
-          <Group alignItems="center" justifyContent="space-between">
+      <style>{STYLE}</style>
+      <Box className="ui" p="24">
+        <Group flexDirection="column" gap="20">
+          <Group alignItems="start" gap="16" justifyContent="space-between">
             <Group flexDirection="column" gap="4">
-              <Heading level="2">Redirects</Heading>
-              <Text color="fg.secondary">
+              <Text fontSize="lg" fontWeight="600">
+                {overview?.config ? `${count(rules.length, 'redirect')} on the site` : 'Redirects'}
+              </Text>
+              <Text color="fg.secondary" fontSize="sm">
                 Every redirect the site applies before a page loads
-                {overview?.config ? ` · ${rules.length} on ${overview.siteUrl}` : ''}.
+                {overview?.config ? `, on ${overview.siteUrl.replace(/^https:\/\//, '')}` : ''}. When two overlap, the one
+                with the longer From address wins.
               </Text>
             </Group>
-            <Group gap="8">
+            <Group gap="8" style={{flex: 'none'}}>
               {overview?.config && !adding && (
-                <Button appearance="primary" onClick={() => setAdding(true)}>
+                <Button appearance="primary" onClick={() => setAdding(true)} size="sm">
                   Add redirect
                 </Button>
               )}
-              <Button loading={loading} onClick={() => void load()}>
+              <Button appearance="subtle" loading={loading} onClick={() => void load()} size="sm">
                 Refresh
               </Button>
             </Group>
@@ -271,7 +282,14 @@ function RedirectManager({context}: {context: ExtensionContext}) {
               </Text>
             </Alert>
           ) : null}
-          {!overview && !error && <Spinner />}
+          {!overview && !error && (
+            <Group gap="8">
+              <Spinner size="sm" />
+              <Text color="fg.secondary" fontSize="sm">
+                Checking every redirect on the site…
+              </Text>
+            </Group>
+          )}
           <NoticeAlert notice={notice} />
           {overview && !overview.config && (
             <Alert intent="information">
@@ -280,10 +298,29 @@ function RedirectManager({context}: {context: ExtensionContext}) {
               </Text>
             </Alert>
           )}
+
+          {overview?.config && rules.length > 0 && (
+            <div className="ui-grid" style={{gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))'}}>
+              {TILES.map((t) => (
+                <div className="ui-tile" key={t.key}>
+                  <div className="ui-tile-label">
+                    <span className="ui-chip" data-state={t.state} style={{padding: 2}}>
+                      <Icon name={t.icon} size={12} />
+                    </span>
+                    {t.label}
+                  </div>
+                  <div className="ui-tile-value">{tally[t.key].toLocaleString('en-GB')}</div>
+                </div>
+              ))}
+            </div>
+          )}
           {overview?.config && <SiteStatus overview={overview} />}
 
           {adding && overview?.config && (
-            <Box style={{maxWidth: 520}}>
+            <div className="ui-card" style={{maxWidth: 560}}>
+              <div className="ui-card-title">
+                <span>Add a redirect</span>
+              </div>
               <AddRedirect
                 context={context}
                 existing={rules}
@@ -293,16 +330,22 @@ function RedirectManager({context}: {context: ExtensionContext}) {
                   changed(result);
                 }}
               />
-            </Box>
+            </div>
           )}
 
           {overview?.config && (
-            <Disclosure>
-              <DisclosureTrigger>Test a URL</DisclosureTrigger>
-              <DisclosureContent>
-                <TestUrl context={context} />
-              </DisclosureContent>
-            </Disclosure>
+            <div className="ui-card" data-folded="">
+              <Disclosure>
+                <DisclosureTrigger>
+                  <Text fontSize="sm" fontWeight="600">
+                    Test a URL
+                  </Text>
+                </DisclosureTrigger>
+                <DisclosureContent>
+                  <TestUrl context={context} />
+                </DisclosureContent>
+              </Disclosure>
+            </div>
           )}
 
           {overview?.config && rules.length === 0 && (
@@ -311,65 +354,47 @@ function RedirectManager({context}: {context: ExtensionContext}) {
             </Text>
           )}
           {overview && rules.length > 0 && (
-            <>
-              <Group gap="8">
-                {errors > 0 && (
-                  <Badge intent="danger" variant="subtle">
-                    {errors} with a problem
-                  </Badge>
-                )}
-                {warnings > 0 && (
-                  <Badge intent="warning" variant="subtle">
-                    {warnings} worth a look
-                  </Badge>
-                )}
-                {errors === 0 && warnings === 0 && (
-                  <Badge intent="success" variant="subtle">
-                    No problems found
-                  </Badge>
-                )}
-              </Group>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHeaderCell>Redirect</TableHeaderCell>
-                    <TableHeaderCell>Problems</TableHeaderCell>
-                    <TableHeaderCell>Enabled</TableHeaderCell>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rules.map((rule) => {
-                    const open = destinationUrl(overview.siteUrl, rule.toPath);
-                    return (
-                      <TableRow key={rule.key}>
-                        <TableCell>
-                          <Group flexDirection="column" gap="4">
-                            <RuleText rule={rule} />
-                            {open && (
-                              <Box>
-                                <OpenLink appearance="subtle" size="sm" url={open}>
-                                  Open destination
-                                </OpenLink>
-                              </Box>
-                            )}
-                          </Group>
-                        </TableCell>
-                        <TableCell>
-                          <Issues issues={rule.issues} />
-                        </TableCell>
-                        <TableCell>
-                          <EnabledCell context={context} onChanged={changed} rule={rule} />
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-              <Text color="fg.tertiary" fontSize="xs">
-                Checked {new Date(overview.checkedAt).toLocaleTimeString()}. When two redirects overlap, the one with the longer From
-                address wins.
-              </Text>
-            </>
+            <Group flexDirection="column" gap="8">
+              <div style={{overflowX: 'auto'}}>
+                <table className="ui-table">
+                  <thead>
+                    <tr>
+                      <th>Redirect</th>
+                      <th>Problems</th>
+                      <th style={{width: 90}}>Enabled</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rules.map((rule) => {
+                      const open = destinationUrl(overview.siteUrl, rule.toPath);
+                      return (
+                        <tr key={rule.key} style={rule.enabled ? undefined : {opacity: 0.7}}>
+                          <td style={{minWidth: 300}}>
+                            <RuleText
+                              open={
+                                open ? (
+                                  <OpenLink appearance="subtle" iconOnly size="sm" url={open}>
+                                    Open the destination
+                                  </OpenLink>
+                                ) : undefined
+                              }
+                              rule={rule}
+                            />
+                          </td>
+                          <td style={{minWidth: 240}}>
+                            {rule.issues.length > 0 ? <Issues issues={rule.issues} /> : <span className="ui-faint">–</span>}
+                          </td>
+                          <td>
+                            <EnabledCell context={context} onChanged={changed} rule={rule} />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <span className="ui-faint ui-small">Checked at {TIME.format(new Date(overview.checkedAt))}.</span>
+            </Group>
           )}
         </Group>
       </Box>
